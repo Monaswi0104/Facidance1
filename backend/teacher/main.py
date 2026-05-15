@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.common.prisma_client import connect, disconnect
 from backend.teacher.router import router
+from middleware.face_concurrency import FaceConcurrencyMiddleware
 
 
 @asynccontextmanager
@@ -34,7 +35,7 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-
+app.add_middleware(FaceConcurrencyMiddleware, max_concurrent=3)
 # Allow Next.js frontend (adjust origins for production)
 app.add_middleware(
     CORSMiddleware,
