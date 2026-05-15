@@ -15,8 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.common.prisma_client import connect, disconnect
 from backend.teacher.router import router
-from middleware.face_concurrency import FaceConcurrencyMiddleware
-
+from backend.middleware.face_concurrency import FaceConcurrencyMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
