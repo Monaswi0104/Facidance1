@@ -59,10 +59,9 @@ next-env.d.ts
 # =========================
 *.pem
 coverage/
-# Terraform
-*.tfstate
-*.tfstate.*
-terraform/
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
 
 # Secrets
 .env
