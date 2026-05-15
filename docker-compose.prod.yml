@@ -129,7 +129,7 @@ services:
         condition: service_completed_successfully
     # face is on face_net ONLY — not on internal, not reachable by nginx
     # No ports: mapping — port 8004 never touches the host
-    networks: [face_net]
+    networks: [face_net, internal] 
 
   frontend:
     image: ${IMAGE_BASE:-ghcr.io/arijitb17/facidance}-frontend:latest
