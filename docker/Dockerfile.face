@@ -4,11 +4,16 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ cmake libpq-dev \
     libopencv-dev libgl1 libglib2.0-0 \
-    libboost-all-dev && \
+    libboost-all-dev unzip wget && \
     rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements-face.txt ./
 RUN pip install --no-cache-dir -r requirements-face.txt
+
+# ── Pre-download InsightFace buffalo_l model at build time ──
+RUN python -c "from insightface.app import FaceAnalysis; \
+    fa = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider']); \
+    fa.prepare(ctx_id=0, det_size=(640,640))"
 
 COPY backend/ ./backend/
 
