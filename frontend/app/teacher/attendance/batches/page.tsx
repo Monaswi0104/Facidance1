@@ -872,7 +872,7 @@ export default function AttendanceCapturePage() {
               </div>
 
               {/* Scrollable student list */}
-              <div style={{ flex: 1, overflowY: "auto", padding: "16px 28px 24px" }}>
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 28px 24px", minHeight: 0 }}>
                 {/* Manually marked */}
                 {markedStudents.length > 0 && (
                   <div style={{ marginBottom: 20 }}>
