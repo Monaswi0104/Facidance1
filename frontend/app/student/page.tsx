@@ -12,7 +12,7 @@ import {
   BarChart3, CheckCircle2, TrendingUp,
   TrendingDown, ArrowUpRight,
 } from "lucide-react";
-import { useStudentStats } from "@/hooks/useStudent";
+import { useStudentStats, useStudentMe } from "@/hooks/useStudent";
 
 // ─── Design tokens (mirrors teacher exactly) ──────────────────────────────────
 const SPRING   = "cubic-bezier(.22,.68,0,1.2)";
@@ -165,6 +165,7 @@ function CardHead({ title, sub, right }: { title: string; sub?: string; right?: 
 export default function StudentDashboard() {
   const router = useRouter();
   const { data: stats, loading, error } = useStudentStats();
+  const { data: me } = useStudentMe();
 
   const totalCourses    = stats?.total_courses ?? 0;
   const attendancePct   = stats?.attendance_percentage ?? 0;
@@ -176,6 +177,27 @@ export default function StudentDashboard() {
     { title: "Classes Attended", value: totalPresent,               Icon: CheckCircle2,  trend: undefined,       trendLabel: undefined },
   ];
 
+
+  const isGraduated = me?.student?.status === "graduated" || false;
+
+  if (isGraduated) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 28, alignItems: "center", justifyContent: "center", minHeight: "70vh", textAlign: "center" }}>
+        <div style={{ width: 80, height: 80, borderRadius: "50%", background: "linear-gradient(135deg, #10b981 0%, #059669 100%)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16, boxShadow: "0 12px 32px rgba(16,185,129,0.3)" }}>
+          <GraduationCap size={40} color="#fff" />
+        </div>
+        <h1 style={{ fontSize: 36, fontWeight: 900, color: C.text, letterSpacing: "-0.03em", lineHeight: 1.1 }}>
+          Congratulations, Alumni! 🎉
+        </h1>
+        <p style={{ fontSize: 16, color: C.body, maxWidth: 500, lineHeight: 1.6 }}>
+          You have successfully graduated. Your attendance records and course history are preserved, but you no longer need to check in for classes.
+        </p>
+        <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+          <Btn primary onClick={() => router.push("/student/history")}><BarChart3 size={16} /> View Past Records</Btn>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>

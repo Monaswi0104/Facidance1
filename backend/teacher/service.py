@@ -112,7 +112,8 @@ async def get_stats(user_id: str) -> dict:
     for c in courses_with_students:
         course_ids.append(c.id)
         for s in (c.students or []):
-            unique_student_ids.add(s.id)
+            if s.status != "graduated":
+                unique_student_ids.add(s.id)
 
     total_students = len(unique_student_ids)
 
@@ -347,6 +348,7 @@ async def get_course_students_for_attendance(
             "has_face_data": bool(getattr(s, "faceEmbedding", None)),
         }
         for s in (course.students or [])
+        if s.status != "graduated"
     ]
 
 
@@ -722,7 +724,7 @@ async def get_course_students(user_id: str, course_id: str) -> dict:
     if not student_ids:
         students = []
     else:
-        students = await prisma.student.find_many(
+        students_raw = await prisma.student.find_many(
             where={"id": {"in": student_ids}},
             include={
                 "user": True,
@@ -730,6 +732,8 @@ async def get_course_students(user_id: str, course_id: str) -> dict:
                 "attendance": True,
             },
         )
+        students = [s for s in students_raw if s.status != "graduated"]
+        
     # Sort in Python (ORM limitation)
     students = sorted(students, key=lambda s: s.user.name.lower())
 
@@ -945,6 +949,8 @@ async def get_teacher_students(user_id: str, course_id: Optional[str] = None) ->
 
     for course in courses:
         for s in (course.students or []):
+            if s.status == "graduated":
+                continue
             if s.id not in student_map:
                 from backend.common.prisma_client import db
 
@@ -1056,6 +1062,7 @@ async def get_report(
                 "percentage": 0,
             }
             for s in (course.students or [])
+            if s.status != "graduated"
         ]
         report.sort(key=lambda x: x["studentName"])
         return report
@@ -1066,6 +1073,8 @@ async def get_report(
     # Map: student_id → attended timestamps
     student_stats: dict[str, dict] = {}
     for s in (course.students or []):
+        if s.status == "graduated":
+            continue
         student_stats[s.id] = {
             "studentName": s.user.name,
             "studentEmail": s.user.email,
@@ -1180,6 +1189,8 @@ async def get_at_risk_students(user_id: str) -> list[dict]:
             continue
 
         for student in (course.students or []):
+            if student.status == "graduated":
+                continue
             attended = sum(
                 1 for r in records
                 if r.studentId == student.id and r.status

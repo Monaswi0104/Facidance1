@@ -157,6 +157,11 @@ async def graduate_student(user_id: Annotated[str, Path()], _: AdminUser):
     return await service.graduate_student(user_id)
 
 
+@router.post("/students/{user_id}/ungraduate", summary="Mark a student as active")
+async def ungraduate_student(user_id: Annotated[str, Path()], _: AdminUser):
+    return await service.ungraduate_student(user_id)
+
+
 # ---------------------------------------------------------------------------
 # Analytics
 # ---------------------------------------------------------------------------

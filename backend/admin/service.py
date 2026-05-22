@@ -660,6 +660,17 @@ async def graduate_student(user_id: str) -> dict:
     return {"message": "Student marked as graduated"}
 
 
+async def ungraduate_student(user_id: str) -> dict:
+    """Revert a student from graduated back to active."""
+    student = await prisma.student.find_unique(where={"userId": user_id})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    await prisma.student.update(
+        where={"id": student.id}, data={"status": "active"}
+    )
+    return {"message": "Student marked as active"}
+
+
 # ---------------------------------------------------------------------------
 # Stats
 # ---------------------------------------------------------------------------

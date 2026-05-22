@@ -142,6 +142,8 @@ export const studentsApi = {
   delete: (userId: string) => apiFetch(`/admin/students/${userId}`, { method: "DELETE" }),
   graduate: (userId: string) =>
     apiFetch(`/admin/students/${userId}/graduate`, { method: "POST" }),
+  ungraduate: (userId: string) =>
+    apiFetch(`/admin/students/${userId}/ungraduate`, { method: "POST" }),
 };
 
 export interface AnalyticsOverview {

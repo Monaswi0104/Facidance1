@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Search, Users, CheckCircle, GraduationCap, Eye, Edit, Trash2, Loader2, X, BookOpen } from "lucide-react";
+import { Search, Users, CheckCircle, GraduationCap, Eye, Edit, Trash2, Loader2, X, BookOpen, RotateCcw } from "lucide-react";
 import { useStudents } from "@/hooks/useAdmin";
 import { studentsApi, Student } from "@/lib/api";
 
@@ -16,7 +16,7 @@ const ICON_GRAD = `linear-gradient(135deg, ${C.primary} 0%, ${C.accent} 100%)`;
 const CARD_GRAD = "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)";
 const SHADOW = { rest: "0 2px 12px rgba(0,49,53,0.06)", hover: "0 12px 36px rgba(0,49,53,0.12)", active: "0 16px 40px rgba(15,164,175,0.35)" };
 
-type ModalType = "view" | "edit" | "graduate" | "delete" | null;
+type ModalType = "view" | "edit" | "graduate" | "ungraduate" | "delete" | null;
 type StatusFilter = "all" | "active" | "graduated";
 
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
@@ -61,12 +61,13 @@ function IconBtn({ icon: Icon, onClick, title, variant = "default" }: { icon: Re
   );
 }
 
-function PrimaryBtn({ children, onClick, disabled, color = "primary" }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; color?: "primary" | "purple" | "red" }) {
+function PrimaryBtn({ children, onClick, disabled, color = "primary" }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; color?: "primary" | "purple" | "red" | "orange" }) {
   const [hov, setHov] = useState(false);
   const bgs: Record<string, string> = {
     primary: ICON_GRAD,
     purple: "linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%)",
     red:    "linear-gradient(135deg, #e11d48 0%, #f43f5e 100%)",
+    orange: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
   };
   return (
     <button onClick={onClick} disabled={disabled} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
@@ -115,6 +116,13 @@ export default function StudentsPage() {
     setActionLoading(true);
     try { await studentsApi.graduate(selectedStudent.id); refetch(); closeModal(); }
     catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed to graduate"); }
+    finally { setActionLoading(false); }
+  }
+  async function handleUngraduate() {
+    if (!selectedStudent) return;
+    setActionLoading(true);
+    try { await studentsApi.ungraduate(selectedStudent.id); refetch(); closeModal(); }
+    catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed to un-graduate"); }
     finally { setActionLoading(false); }
   }
   async function handleDelete() {
@@ -226,6 +234,8 @@ export default function StudentsPage() {
                   onView={() => openModal("view", s)}
                   onEdit={() => openModal("edit", s)}
                   onDelete={() => openModal("delete", s)}
+                  onGraduate={() => openModal("graduate", s)}
+                  onUngraduate={() => openModal("ungraduate", s)}
                 />
               ))}
             </div>
@@ -327,6 +337,24 @@ export default function StudentsPage() {
               </>
             )}
 
+            {modalType === "ungraduate" && (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                  <div style={{ height: 44, width: 44, minWidth: 44, borderRadius: "50%", background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <RotateCcw size={18} color="#fff" />
+                  </div>
+                  <p style={{ fontSize: 16, fontWeight: 700, color: C.text, margin: 0 }}>Un-graduate Student</p>
+                </div>
+                <p style={{ fontSize: 14, color: C.body, marginBottom: 20 }}>Revert <strong style={{ color: C.text }}>{selectedStudent.name}</strong> back to active status? This will restore their dashboard to the standard view.</p>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button onClick={closeModal} style={{ padding: "8px 18px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.textSoft, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                  <PrimaryBtn onClick={handleUngraduate} disabled={actionLoading} color="orange">
+                    {actionLoading && <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />} Revert
+                  </PrimaryBtn>
+                </div>
+              </>
+            )}
+
             {modalType === "delete" && (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -353,7 +381,7 @@ export default function StudentsPage() {
 
 // Replace the StudentRow component with this mobile-optimized version:
 
-function StudentRow({ student, onView, onEdit, onDelete }: { student: Student; onView: () => void; onEdit: () => void; onDelete: () => void }) {
+function StudentRow({ student, onView, onEdit, onDelete, onGraduate, onUngraduate }: { student: Student; onView: () => void; onEdit: () => void; onDelete: () => void; onGraduate: () => void; onUngraduate: () => void; }) {
   const [hov, setHov] = useState(false);
   return (
     <div
@@ -393,6 +421,11 @@ function StudentRow({ student, onView, onEdit, onDelete }: { student: Student; o
 
         {/* Actions — top right */}
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          {!student.graduated ? (
+            <IconBtn icon={GraduationCap} onClick={onGraduate} title="Graduate" />
+          ) : (
+            <IconBtn icon={RotateCcw} onClick={onUngraduate} title="Un-graduate" />
+          )}
           <IconBtn icon={Eye}    onClick={onView}     title="View" />
           <IconBtn icon={Edit}   onClick={onEdit}     title="Edit" />
           <IconBtn icon={Trash2} onClick={onDelete}   title="Delete" variant="danger" />
