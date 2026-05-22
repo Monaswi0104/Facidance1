@@ -601,7 +601,13 @@ async def update_student(user_id: str, data: UpdateStudentRequest) -> dict:
 
 
 async def delete_student(user_id: str) -> dict:
-    """DELETE student user. Mirrors DELETE /api/admin/students/[id]."""
+    """DELETE student user. Cascades appropriately."""
+    from backend.common.prisma_client import db
+    student = await prisma.student.find_unique(where={"userId": user_id})
+    if student:
+        await prisma.attendance.delete_many(where={"studentId": student.id})
+        await db.execute('DELETE FROM "_CourseStudents" WHERE "B" = $1', student.id)
+        await prisma.student.delete(where={"id": student.id})
     await prisma.user.delete(where={"id": user_id})
     return {"success": True}
 

@@ -408,10 +408,10 @@ export default function TeacherReports() {
           <Card>
             <CardHead title="Attendance by Student" sub="Individual percentage breakdown" />
             <div style={{ padding: "16px 8px 24px" }}>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={barData} barCategoryGap="38%">
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={barData} barCategoryGap="38%" margin={{ bottom: 60 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#94a3b8", fontWeight: 500 }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#94a3b8", fontWeight: 500 }} axisLine={false} tickLine={false} interval={0} angle={-35} textAnchor="end" height={70} />
                   <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} unit="%" domain={[0, 100]} />
                   <Tooltip
                     contentStyle={{ background: "rgba(255,255,255,0.98)", border: "1px solid rgba(15,164,175,0.15)", borderRadius: 12, fontSize: 12, boxShadow: SHADOW.hover }}

@@ -27,7 +27,7 @@ from backend.teacher.schemas import (
 )
 import httpx
 
-PYTHON_API_URL = os.environ.get("PYTHON_API_URL", "http://localhost:8003")
+PYTHON_API_URL = os.environ.get("PYTHON_API_URL", "http://localhost:8004")
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +631,57 @@ async def get_attendance_history(course_id: str) -> dict:
     }
 
 
+async def mark_present(course_id: str, student_id: str, date_str: Optional[str]) -> dict:
+    """
+    Manually mark a student as present for a given course/date.
+    If an attendance record already exists for that day, flip it to present.
+    If none exists, create one with status=True.
+    """
+    if date_str:
+        attendance_date = _parse_dt(date_str).replace(tzinfo=None)
+    else:
+        attendance_date = datetime.utcnow()
+
+    start_of_day = datetime(
+        attendance_date.year, attendance_date.month, attendance_date.day,
+        0, 0, 0, 0
+    )
+    end_of_day = datetime(
+        attendance_date.year, attendance_date.month, attendance_date.day,
+        23, 59, 59, 999999
+    )
+
+    existing = await prisma.attendance.find_first(
+        where={
+            "studentId": student_id,
+            "courseId": course_id,
+            "timestamp": {"gte": start_of_day, "lte": end_of_day},
+        }
+    )
+
+    if existing:
+        rec = await prisma.attendance.update(
+            where={"id": existing.id},
+            data={"status": True, "timestamp": attendance_date},
+        )
+    else:
+        rec = await prisma.attendance.create(
+            data={
+                "id": _make_cuid(),
+                "studentId": student_id,
+                "courseId": course_id,
+                "status": True,
+                "timestamp": attendance_date,
+            }
+        )
+
+    return {
+        "success": True,
+        "message": "Student marked as present",
+        "attendance_id": rec.id,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Course students (detail view)
 # ---------------------------------------------------------------------------
@@ -795,13 +846,13 @@ async def import_students(course_id: str, user_id: str, data: ImportStudentsRequ
 
             if user:
                 if user.student:
-                    enrolment = await prisma.course.find_first(
-                        where={
-                            "id": course_id,
-                            "students": {"some": {"id": user.student.id}},
-                        }
+                    from backend.common.prisma_client import db
+                    enrolment_exists = await db.fetchval(
+                        'SELECT 1 FROM "_CourseStudents" WHERE "A" = $1 AND "B" = $2',
+                        course_id,
+                        user.student.id
                     )
-                    if enrolment:
+                    if enrolment_exists:
                         existing.append(email)
                         continue
 
@@ -816,12 +867,18 @@ async def import_students(course_id: str, user_id: str, data: ImportStudentsRequ
             else:
                 new_user = await prisma.user.create(
                     data={
+                        "id": _make_cuid(),
                         "name": item.name,
                         "email": email,
                         "password": hashed_pw,
                         "role": "STUDENT",
+                        "createdAt": datetime.utcnow(),
+                        "updatedAt": datetime.utcnow(),
                         "student": {
-                            "create": {"programId": item.program_id}
+                            "create": {
+                                "id": _make_cuid(),
+                                "programId": item.program_id
+                            }
                         },
                     }
                 )

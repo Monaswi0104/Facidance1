@@ -66,3 +66,25 @@ terraform/*.tfstate.*
 # Secrets
 .env
 *.pem
+
+# =========================
+# Python Virtual Env
+# =========================
+venv/
+
+# =========================
+# ML / Dataset / Output
+# =========================
+backend/dataset/
+backend/output/
+backend/face_embeddings.pkl
+backend/training_visualization.png
+dataset/
+output/
+face_embeddings.pkl
+*.pkl
+
+# =========================
+# Temp files
+# =========================
+prisma/temp_schema.prisma

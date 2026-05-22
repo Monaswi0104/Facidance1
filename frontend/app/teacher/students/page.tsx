@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/lib/useToast";
 import { ToastContainer } from "@/components/ToastContainer";
-import { teacherStudentsApi, teacherCoursesApi } from "@/lib/teacher-api";
+import { teacherStudentsApi, teacherCoursesApi, teacherHierarchyApi } from "@/lib/teacher-api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface StudentCourseRef { id: string; name: string }
@@ -199,12 +199,18 @@ export default function TeacherStudents() {
     const token = localStorage.getItem("token");
     if (!token) { setError("Not authenticated."); router.push("/login"); return; }
 
-    const [studentsData, coursesData, programsRes] = await Promise.all([
+    const [studentsData, coursesData, hierarchyData] = await Promise.all([
       teacherStudentsApi.list(),
       teacherCoursesApi.list(),
-      fetch("/api/programs", { headers: { Authorization: `Bearer ${token}` } }),
+      teacherHierarchyApi.get(),
     ]);
-    const programsData = programsRes.ok ? await programsRes.json() : [];
+    const programsData = hierarchyData.departments.flatMap(d => 
+      d.programs.map(p => ({
+        id: p.id,
+        name: p.name,
+        department: { name: d.name }
+      }))
+    );
 
     setStudents(studentsData.map((s) => ({
       id: s.id,
@@ -286,10 +292,10 @@ const firstSheet = workbook.Sheets[sheetName];
         if (!name || !dob) continue;
         const studentEmail = email || `${String(name).toLowerCase().replace(/\s+/g, ".")}@student.com`;
 
-        let parsedDob: string;
+        let parsedDob = "";
         if (typeof dob === "number") {
-          const epoch = new Date(1899, 11, 30);
-          epoch.setDate(epoch.getDate() + Math.floor(dob));
+          const epoch = new Date(Date.UTC(1899, 11, 30));
+          epoch.setUTCDate(epoch.getUTCDate() + Math.floor(dob));
           parsedDob = epoch.toISOString().split("T")[0];
         } else {
           const parts = String(dob).trim().replace(/\//g, "-").split("-");
@@ -312,7 +318,11 @@ parsedDob = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
       if (studentsToImport.length === 0) { toast.warning("No data", "No valid student records found."); return; }
 
       const result = await teacherCoursesApi.importStudents(courseId, studentsToImport);
-      toast.success("Import successful!", `Added: ${result.successful.length}, Existing: ${result.existing.length}, Failed: ${result.failed.length}`);
+      if (result.failed.length > 0) {
+        toast.error("Import had issues", `Added: ${result.successful.length}, Failed: ${result.failed.length}. Reasons: ${result.failed.map((f: any) => f.reason).join(', ')}`);
+      } else {
+        toast.success("Import successful!", `Added: ${result.successful.length}, Existing: ${result.existing.length}`);
+      }
       await fetchData();
       if (formRef.current) formRef.current.reset();
     } catch (err: any) {

@@ -196,3 +196,13 @@ class SendCredentialStudent(BaseModel):
 
 class SendCredentialsRequest(BaseModel):
     students: List[SendCredentialStudent]
+
+
+# ---------------------------------------------------------------------------
+# Manual attendance override
+# ---------------------------------------------------------------------------
+
+class MarkPresentRequest(BaseModel):
+    course_id: str
+    student_id: str
+    date: Optional[str] = None

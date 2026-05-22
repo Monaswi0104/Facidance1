@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Camera, Users, Brain, History, CheckCircle2,
   Play, Pause, Square, Clock, ArrowLeft,
-  Zap, BarChart3,
+  Zap, BarChart3, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
+  UserPlus, XCircle,
 } from "lucide-react";
 import { useToast } from "@/lib/useToast";
 import { ToastContainer } from "@/components/ToastContainer";
@@ -40,6 +41,7 @@ const CARD_GRAD = "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)";
 
 const SESSION_DURATION = 45 * 60 * 1000;
 const CAPTURE_INTERVAL = 2  * 60 * 1000;
+const BASE_SCALE = 1.3; // Always render video 30% larger so pan/tilt work without zooming
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Student { id: string; name: string; email: string; hasFaceData: boolean }
@@ -134,6 +136,18 @@ export default function AttendanceCapturePage() {
   const [courseName, setCourseName] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
 
+  const zoomRef = useRef(1);
+  const [zoom, setZoom] = useState(1);
+  const handleZoom = (val: number) => { setZoom(val); zoomRef.current = val; };
+
+  const panRef = useRef(0);
+  const [pan, setPan] = useState(0);
+  const handlePan = (val: number) => { setPan(val); panRef.current = val; };
+
+  const tiltRef = useRef(0);
+  const [tilt, setTilt] = useState(0);
+  const handleTilt = (val: number) => { setTilt(val); tiltRef.current = val; };
+
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionPaused, setSessionPaused] = useState(false);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -148,6 +162,10 @@ export default function AttendanceCapturePage() {
   const [attendanceHistory, setAttendanceHistory] = useState<Record<string, AttendanceHistoryRecord[]>>({});
   const [showHistory, setShowHistory] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showSessionSummary, setShowSessionSummary] = useState(false);
+  const [manuallyMarked, setManuallyMarked] = useState<Set<string>>(new Set());
+  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [lastSubmitDate, setLastSubmitDate] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialLoadRef.current) return;
@@ -218,11 +236,20 @@ export default function AttendanceCapturePage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) { setCapturing(false); return; }
     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    
+    const z = BASE_SCALE * zoomRef.current;
+    const cropWidth = video.videoWidth / z;
+    const cropHeight = video.videoHeight / z;
+    const maxPanX = (video.videoWidth - cropWidth) / 2;
+    const sx = maxPanX + (panRef.current / 100) * maxPanX;
+    const maxTiltY = (video.videoHeight - cropHeight) / 2;
+    const sy = maxTiltY + (tiltRef.current / 100) * maxTiltY;
+
     const frames: File[] = [];
     try {
       for (let i = 0; i < 5; i++) {
         await new Promise((r) => setTimeout(r, 300));
-        ctx.drawImage(video, 0, 0);
+        ctx.drawImage(video, sx, sy, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
         const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => b ? res(b) : rej(new Error("blob")), "image/jpeg", 0.9));
         frames.push(new File([blob], `frame_${i}.jpg`, { type: "image/jpeg" }));
       }
@@ -304,15 +331,37 @@ export default function AttendanceCapturePage() {
     if (allRecognizedStudents.size === 0 || !courseId) { toast.error("Cannot submit", "No students recognized"); return; }
     setSubmitting(true);
     try {
+      const submitDate = new Date().toISOString();
       const finalRec: RecognitionStudent[] = Array.from(allRecognizedStudents)
         .map((sid) => { const s = students.find((st) => st.id === sid); return s ? { id: s.id, name: s.name, email: s.email } : null; })
         .filter((s): s is RecognitionStudent => s !== null);
-      const result = await teacherAttendanceApi.submitAttendance(courseId, { recognizedStudents: finalRec }, new Date().toISOString());
+      const result = await teacherAttendanceApi.submitAttendance(courseId, { recognizedStudents: finalRec }, submitDate);
       toast.success("Submitted!", `Present: ${result.statistics.present}, Absent: ${result.statistics.absent}, Rate: ${result.statistics.attendanceRate}%`, 7000);
       await fetchAttendanceHistory(courseId);
-      setSessionRecognitions([]); setAllRecognizedStudents(new Set()); setCurrentRecognition(null);
+      setLastSubmitDate(submitDate);
+      setManuallyMarked(new Set());
+      setShowSessionSummary(true);
     } catch { toast.error("Submission failed", ""); }
     finally { setSubmitting(false); }
+  }
+
+  async function handleMarkPresent(studentId: string) {
+    if (!courseId) return;
+    setMarkingId(studentId);
+    try {
+      await teacherAttendanceApi.markPresent(courseId, studentId, lastSubmitDate || undefined);
+      setManuallyMarked((prev) => new Set(prev).add(studentId));
+      setAllRecognizedStudents((prev) => new Set(prev).add(studentId));
+      toast.success("Marked present", "Attendance updated successfully");
+      await fetchAttendanceHistory(courseId);
+    } catch { toast.error("Failed", "Could not mark student as present"); }
+    finally { setMarkingId(null); }
+  }
+
+  function dismissSummary() {
+    setShowSessionSummary(false);
+    setSessionRecognitions([]); setAllRecognizedStudents(new Set()); setCurrentRecognition(null);
+    setManuallyMarked(new Set()); setLastSubmitDate(null);
   }
 
   function goBack() {
@@ -511,7 +560,7 @@ export default function AttendanceCapturePage() {
   boxShadow: cameraActive ? "0 0 0 3px rgba(15,164,175,0.3)" : "none",
   transition: EASE_ALL,
 }}>
-  <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+  <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${BASE_SCALE * zoom})`, transformOrigin: `${50 + (pan / 2)}% ${50 + (tilt / 2)}%`, transition: "all 0.15s ease-out" }} />
   <canvas ref={canvasRef} style={{ display: "none" }} />
 
   {/* Pre-session overlay */}
@@ -579,6 +628,49 @@ export default function AttendanceCapturePage() {
                     }}>
                       <Zap size={11} />
                       Capturing…
+                    </div>
+                  )}
+
+                  {/* Camera Controls */}
+                  {sessionActive && (
+                    <div style={{
+                      position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)",
+                      display: "flex", flexDirection: "column", gap: 10,
+                      background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+                      padding: "12px 20px", borderRadius: 20, border: "1px solid rgba(255,255,255,0.15)",
+                      zIndex: 10
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ color: "#fff", display: "flex" }}><ZoomOut size={16} /></span>
+                        <input
+                          type="range" min="1" max="5" step="0.1" value={zoom}
+                          onChange={(e) => handleZoom(parseFloat(e.target.value))}
+                          style={{ width: 120, accentColor: C.accent }}
+                        />
+                        <span style={{ color: "#fff", display: "flex" }}><ZoomIn size={16} /></span>
+                      </div>
+                      
+                      {/* Pan Left/Right */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ color: "#fff", display: "flex" }}><ChevronLeft size={16} /></span>
+                        <input
+                          type="range" min="-100" max="100" step="1" value={pan}
+                          onChange={(e) => handlePan(parseInt(e.target.value))}
+                          style={{ width: 120, accentColor: C.accent }}
+                        />
+                        <span style={{ color: "#fff", display: "flex" }}><ChevronRight size={16} /></span>
+                      </div>
+
+                      {/* Tilt Up/Down */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ color: "#fff", display: "flex" }}><ChevronUp size={16} /></span>
+                        <input
+                          type="range" min="-100" max="100" step="1" value={tilt}
+                          onChange={(e) => handleTilt(parseInt(e.target.value))}
+                          style={{ width: 120, accentColor: C.accent }}
+                        />
+                        <span style={{ color: "#fff", display: "flex" }}><ChevronDown size={16} /></span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -708,6 +800,171 @@ export default function AttendanceCapturePage() {
           </div>
         )}
       </div>
+
+      {/* ── Session Summary: Absent Students ── */}
+      {showSessionSummary && (() => {
+        const absentStudents = students.filter(
+          (s) => !allRecognizedStudents.has(s.id) && !manuallyMarked.has(s.id)
+        );
+        const markedStudents = students.filter((s) => manuallyMarked.has(s.id));
+        const totalPresent = allRecognizedStudents.size + markedStudents.filter((s) => !allRecognizedStudents.has(s.id)).length;
+
+        return (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 24,
+          }}>
+            <div style={{
+              background: "#fff", borderRadius: 24, width: "100%", maxWidth: 600,
+              maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.25)",
+            }}>
+              {/* Header */}
+              <div style={{
+                padding: "24px 28px 16px", borderBottom: `1px solid ${C.border}`,
+                background: "linear-gradient(180deg, #f8fafc 0%, #fff 100%)",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <h2 style={{ fontSize: 18, fontWeight: 800, color: C.text, letterSpacing: "-0.02em" }}>
+                      Session Summary
+                    </h2>
+                    <p style={{ fontSize: 12, color: C.body, marginTop: 4 }}>
+                      Review absent students and manually mark if needed
+                    </p>
+                  </div>
+                  <button onClick={dismissSummary} style={{
+                    background: "none", border: "none", cursor: "pointer", padding: 6,
+                    borderRadius: 8, display: "flex",
+                  }}>
+                    <XCircle size={22} color={C.muted} />
+                  </button>
+                </div>
+
+                {/* Stats row */}
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <div style={{
+                    flex: 1, padding: "10px 14px", borderRadius: 12,
+                    background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)",
+                  }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: "#059669", textTransform: "uppercase", letterSpacing: "0.1em" }}>Present</p>
+                    <p style={{ fontSize: 24, fontWeight: 900, color: "#059669", lineHeight: 1, marginTop: 4 }}>{totalPresent}</p>
+                  </div>
+                  <div style={{
+                    flex: 1, padding: "10px 14px", borderRadius: 12,
+                    background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)",
+                  }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.1em" }}>Absent</p>
+                    <p style={{ fontSize: 24, fontWeight: 900, color: "#dc2626", lineHeight: 1, marginTop: 4 }}>{absentStudents.length}</p>
+                  </div>
+                  <div style={{
+                    flex: 1, padding: "10px 14px", borderRadius: 12,
+                    background: "rgba(15,164,175,0.06)", border: `1px solid ${C.borderHov}`,
+                  }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.1em" }}>Rate</p>
+                    <p style={{ fontSize: 24, fontWeight: 900, color: C.accent, lineHeight: 1, marginTop: 4 }}>
+                      {students.length > 0 ? ((totalPresent / students.length) * 100).toFixed(1) : "0"}%
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Scrollable student list */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 28px 24px" }}>
+                {/* Manually marked */}
+                {markedStudents.length > 0 && (
+                  <div style={{ marginBottom: 20 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: "#059669", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
+                      ✅ Manually marked present ({markedStudents.length})
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {markedStudents.map((s) => (
+                        <div key={s.id} style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "10px 14px", borderRadius: 11,
+                          background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)",
+                        }}>
+                          <div>
+                            <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.name}</p>
+                            <p style={{ fontSize: 11, color: C.body, marginTop: 2 }}>{s.email}</p>
+                          </div>
+                          <span style={{
+                            padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                            background: "rgba(16,185,129,0.1)", color: "#059669",
+                          }}>
+                            ✔ Marked
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Absent students */}
+                {absentStudents.length > 0 ? (
+                  <>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
+                      ✗ Absent students ({absentStudents.length})
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {absentStudents.map((s) => (
+                        <div key={s.id} style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "10px 14px", borderRadius: 11,
+                          background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.12)",
+                          transition: EASE_ALL,
+                        }}>
+                          <div>
+                            <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.name}</p>
+                            <p style={{ fontSize: 11, color: C.body, marginTop: 2 }}>{s.email}</p>
+                          </div>
+                          <button
+                            onClick={() => handleMarkPresent(s.id)}
+                            disabled={markingId === s.id}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 5,
+                              padding: "6px 14px", borderRadius: 10, fontSize: 12, fontWeight: 700,
+                              background: ICON_GRAD, color: "#fff", border: "none",
+                              cursor: markingId === s.id ? "not-allowed" : "pointer",
+                              opacity: markingId === s.id ? 0.6 : 1,
+                              boxShadow: "0 4px 12px rgba(15,164,175,0.3)",
+                              transition: EASE_ALL,
+                            }}
+                          >
+                            {markingId === s.id ? (
+                              <><div style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> Marking…</>
+                            ) : (
+                              <><UserPlus size={13} /> Mark Present</>
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ textAlign: "center", padding: "32px 0" }}>
+                    <CheckCircle2 size={36} color="#059669" style={{ margin: "0 auto 12px" }} />
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#059669" }}>All students are present!</p>
+                    <p style={{ fontSize: 12, color: C.body, marginTop: 4 }}>Perfect attendance for this session.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div style={{
+                padding: "16px 28px", borderTop: `1px solid ${C.border}`,
+                display: "flex", justifyContent: "flex-end",
+              }}>
+                <ActionBtn variant="primary" onClick={dismissSummary}>
+                  Done
+                </ActionBtn>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <style>{`
         @keyframes spin  { to { transform: rotate(360deg); } }

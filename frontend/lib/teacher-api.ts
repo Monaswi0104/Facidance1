@@ -324,6 +324,16 @@ export const teacherAttendanceApi = {
     apiFetch<AttendanceHistoryResponse>(
       `/teacher/attendance/history?course_id=${courseId}`
     ),
+
+  markPresent: (courseId: string, studentId: string, date?: string) =>
+    apiFetch<{ success: boolean; message: string; attendance_id: string }>(
+      "/teacher/attendance/mark-present",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course_id: courseId, student_id: studentId, date }),
+      }
+    ),
 };
 
 /** Send credentials email */

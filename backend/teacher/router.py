@@ -32,6 +32,7 @@ from backend.teacher import service
 from backend.teacher.schemas import (
     GetStudentsRequest,
     ImportStudentsRequest,
+    MarkPresentRequest,
     RemoveStudentRequest,
     RunTrainingRequest,
     SendCredentialsRequest,
@@ -198,6 +199,11 @@ async def recognize_faces(
 @router.post("/attendance/submit", summary="Persist attendance records from recognition results")
 async def submit_attendance(body: SubmitAttendanceRequest, _: TeacherUser):
     return await service.submit_attendance(body)
+
+
+@router.patch("/attendance/mark-present", summary="Manually mark a student as present")
+async def mark_present(body: MarkPresentRequest, _: TeacherUser):
+    return await service.mark_present(body.course_id, body.student_id, body.date)
 
 
 @router.get("/attendance/history", summary="Attendance history for a course grouped by date")
