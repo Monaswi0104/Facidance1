@@ -122,7 +122,7 @@ async def approve_teacher(data: ApproveTeacherRequest) -> dict:
     return {
         "message": "Teacher approved successfully",
         "teacher_id": teacher.id,
-        "department_id": teacher.department_id,
+        "department_id": teacher.departmentId,
     }
 
 

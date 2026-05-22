@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import datetime
 
 import bcrypt
 import jwt
@@ -140,6 +141,7 @@ async def register_teacher(data: RegisterTeacherRequest) -> dict:
             "email": email,
             "password": hashed,
             "role": "TEACHER",
+            "updatedAt": datetime.utcnow(),
         }
     )
 
