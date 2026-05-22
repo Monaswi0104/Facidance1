@@ -643,7 +643,7 @@ export default function AttendanceCapturePage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <span style={{ color: "#fff", display: "flex" }}><ZoomOut size={16} /></span>
                         <input
-                          type="range" min="1" max="5" step="0.1" value={zoom}
+                          type="range" min="0.5" max="10" step="0.1" value={zoom}
                           onChange={(e) => handleZoom(parseFloat(e.target.value))}
                           style={{ width: 120, accentColor: C.accent }}
                         />
@@ -654,7 +654,7 @@ export default function AttendanceCapturePage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <span style={{ color: "#fff", display: "flex" }}><ChevronLeft size={16} /></span>
                         <input
-                          type="range" min="-100" max="100" step="1" value={pan}
+                          type="range" min="-200" max="200" step="1" value={pan}
                           onChange={(e) => handlePan(parseInt(e.target.value))}
                           style={{ width: 120, accentColor: C.accent }}
                         />
@@ -665,7 +665,7 @@ export default function AttendanceCapturePage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <span style={{ color: "#fff", display: "flex" }}><ChevronUp size={16} /></span>
                         <input
-                          type="range" min="-100" max="100" step="1" value={tilt}
+                          type="range" min="-200" max="200" step="1" value={tilt}
                           onChange={(e) => handleTilt(parseInt(e.target.value))}
                           style={{ width: 120, accentColor: C.accent }}
                         />
