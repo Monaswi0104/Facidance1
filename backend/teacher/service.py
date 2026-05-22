@@ -830,13 +830,11 @@ async def import_students(course_id: str, user_id: str, data: ImportStudentsRequ
     existing: list[str] = []
 
     for item in data.students:
-        if not all([item.name, item.email, item.dob, item.program_id]):
-            failed.append({"email": item.email or "unknown", "reason": "Missing required fields"})
+        if not all([item.name, item.email, item.program_id]):
+            failed.append({"email": item.email or "unknown", "reason": "Missing required fields (name, email, or program)"})
             continue
 
         try:
-            dob_clean = item.dob.replace("-", "").replace("/", "")
-            hashed_pw = _hash_dob_password(dob_clean)
             email = item.email.lower().strip()
 
             user = await prisma.user.find_unique(
@@ -865,6 +863,12 @@ async def import_students(course_id: str, user_id: str, data: ImportStudentsRequ
                 else:
                     failed.append({"email": email, "reason": "User exists but is not a student"})
             else:
+                # New student — DOB is required as initial password
+                if not item.dob:
+                    failed.append({"email": email, "reason": "DOB is required for new students (used as password)"})
+                    continue
+                dob_clean = item.dob.replace("-", "").replace("/", "")
+                hashed_pw = _hash_dob_password(dob_clean)
                 new_user = await prisma.user.create(
                     data={
                         "id": _make_cuid(),
@@ -936,18 +940,40 @@ async def get_teacher_students(user_id: str, course_id: Optional[str] = None) ->
     )
 
     student_map: dict[str, dict] = {}
+    # Collect the course IDs we're displaying so we can scope attendance
+    displayed_course_ids = [c.id for c in courses]
+
     for course in courses:
         for s in (course.students or []):
             if s.id not in student_map:
-                attendance_count = await prisma.attendance.count(
-                    where={"studentId": s.id, "course": {"teacherId": teacher.id}}
+                from backend.common.prisma_client import db
+
+                # Count attendance only for the displayed courses
+                if course_id:
+                    # Specific course filter — only count attendance for that course
+                    attendance_count = await db.fetchval(
+                        'SELECT COUNT(*) FROM "Attendance" WHERE "studentId" = $1 AND "courseId" = $2',
+                        s.id, course_id
+                    )
+                else:
+                    # No filter — count attendance across all of this teacher's courses
+                    attendance_count = await db.fetchval(
+                        'SELECT COUNT(*) FROM "Attendance" a '
+                        'JOIN "Course" c ON a."courseId" = c.id '
+                        'WHERE a."studentId" = $1 AND c."teacherId" = $2',
+                        s.id, teacher.id
+                    )
+                attendance_count = int(attendance_count or 0)
+
+                # Count how many of this teacher's courses the student is enrolled in
+                courses_count = await db.fetchval(
+                    'SELECT COUNT(*) FROM "_CourseStudents" cs '
+                    'JOIN "Course" c ON cs."A" = c.id '
+                    'WHERE cs."B" = $1 AND c."teacherId" = $2',
+                    s.id, teacher.id
                 )
-                courses_count = await prisma.course.count(
-                    where={
-                        "teacherId": teacher.id,
-                        "students": {"some": {"id": s.id}},
-                    }
-                )
+                courses_count = int(courses_count or 0)
+
                 student_map[s.id] = {
                     "id": s.id,
                     "user": {"name": s.user.name, "email": s.user.email},

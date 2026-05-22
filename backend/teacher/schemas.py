@@ -61,7 +61,7 @@ class CourseStudentsResponse(BaseModel):
 class ImportStudentItem(BaseModel):
     name: str
     email: EmailStr
-    dob: str = Field(..., description="Date of birth used as initial password (YYYY-MM-DD or DD/MM/YYYY)")
+    dob: str = Field("", description="Date of birth used as initial password (YYYY-MM-DD or DD/MM/YYYY). Optional for existing students.")
     program_id: str
 
 

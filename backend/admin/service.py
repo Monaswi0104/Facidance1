@@ -156,9 +156,46 @@ async def create_teacher(data: CreateTeacherRequest) -> dict:
 async def delete_teacher(user_id: str) -> dict:
     """
     Delete Teacher record (if exists) then User record.
+    Cascades through: enrollments → attendance → courses → teacher → user.
     Mirrors DELETE /api/admin/teachers and DELETE /api/admin/teachers/[id].
     """
-    await prisma.teacher.delete_many(where={"userId": user_id})
+    from backend.common.prisma_client import db
+
+    teacher = await prisma.teacher.find_first(where={"userId": user_id})
+
+    if teacher:
+        # Get all courses owned by this teacher
+        courses = await db.fetch(
+            'SELECT id FROM "Course" WHERE "teacherId" = $1', teacher.id
+        )
+        course_ids = [c["id"] for c in courses]
+
+        if course_ids:
+            # Build placeholder list for IN clause
+            phs = ", ".join(f"${i+1}" for i in range(len(course_ids)))
+
+            # 1. Remove student enrollments for these courses
+            await db.execute(
+                f'DELETE FROM "_CourseStudents" WHERE "A" IN ({phs})',
+                *course_ids,
+            )
+
+            # 2. Remove attendance records for these courses
+            await db.execute(
+                f'DELETE FROM "Attendance" WHERE "courseId" IN ({phs})',
+                *course_ids,
+            )
+
+            # 3. Delete the courses themselves
+            await db.execute(
+                f'DELETE FROM "Course" WHERE id IN ({phs})',
+                *course_ids,
+            )
+
+        # 4. Delete the Teacher record
+        await prisma.teacher.delete_many(where={"userId": user_id})
+
+    # 5. Delete the User record
     await prisma.user.delete(where={"id": user_id})
     return {"message": "Teacher deleted successfully"}
 

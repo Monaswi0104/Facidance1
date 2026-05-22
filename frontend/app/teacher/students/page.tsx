@@ -289,28 +289,28 @@ const firstSheet = workbook.Sheets[sheetName];
         const row = jsonData[i];
         if (!row || row.length === 0) continue;
         const [name, dob, email] = row;
-        if (!name || !dob) continue;
+        if (!name) continue;
         const studentEmail = email || `${String(name).toLowerCase().replace(/\s+/g, ".")}@student.com`;
 
         let parsedDob = "";
-        if (typeof dob === "number") {
-          const epoch = new Date(Date.UTC(1899, 11, 30));
-          epoch.setUTCDate(epoch.getUTCDate() + Math.floor(dob));
-          parsedDob = epoch.toISOString().split("T")[0];
-        } else {
-          const parts = String(dob).trim().replace(/\//g, "-").split("-");
-          if (parts.length !== 3) continue;
-         const [day, month, yearRaw] = parts;
-
-let year = yearRaw;
-
-if (year.length === 2) {
-  year = String(
-    Math.floor(new Date().getFullYear() / 100) * 100 + parseInt(year)
-  );
-}
-
-parsedDob = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+        if (dob) {
+          if (typeof dob === "number") {
+            const epoch = new Date(Date.UTC(1899, 11, 30));
+            epoch.setUTCDate(epoch.getUTCDate() + Math.floor(dob));
+            parsedDob = epoch.toISOString().split("T")[0];
+          } else {
+            const parts = String(dob).trim().replace(/\//g, "-").split("-");
+            if (parts.length === 3) {
+              const [day, month, yearRaw] = parts;
+              let year = yearRaw;
+              if (year.length === 2) {
+                year = String(
+                  Math.floor(new Date().getFullYear() / 100) * 100 + parseInt(year)
+                );
+              }
+              parsedDob = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+            }
+          }
         }
         studentsToImport.push({ name: String(name).trim(), email: studentEmail.toLowerCase().trim(), dob: parsedDob, program_id: programId });
       }
