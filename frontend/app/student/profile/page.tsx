@@ -285,40 +285,67 @@ export default function StudentProfilePage() {
                   }}>{profile.email}</p>
 
                   {/* Badges */}
-                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
+                    {profile.student?.status === "graduated" ? (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                        padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        background: "rgba(245,158,11,0.1)", color: "#d97706",
+                        border: "1px solid rgba(245,158,11,0.3)",
+                      }}>
+                        Alumni
+                      </span>
+                    ) : (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                        padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        background: "rgba(15,164,175,0.1)", color: C.accent,
+                        border: `1px solid ${C.borderHov}`,
+                      }}>
+                        Student
+                      </span>
+                    )}
                     <span style={{
                       display: "inline-flex", alignItems: "center", gap: 5,
-                      padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
-                      background: "rgba(15,164,175,0.1)", color: C.accent,
-                      border: `1px solid ${C.borderHov}`,
-                    }}>
-                      Student
-                    </span>
-                    <span style={{
-                      display: "inline-flex", alignItems: "center", gap: 5,
-                      padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                      padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600,
                       background: "rgba(248,250,252,0.9)",
                       color: C.body, border: `1px solid ${C.border}`,
                     }}>
-                      <Calendar size={10} />
+                      <Calendar size={12} />
                       Joined {new Date(profile.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short" })}
                     </span>
                   </div>
                 </div>
+                
+                {/* Face status badge — top right on desktop */}
+                <div style={{ marginLeft: "auto", alignSelf: "flex-start" }} className="face-badge-desktop">
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "6px 12px", borderRadius: 12, fontSize: 11, fontWeight: 700,
+                    background: hasFace ? "rgba(16,185,129,0.1)" : "rgba(245,158,11,0.1)",
+                    color: hasFace ? "#059669" : "#d97706",
+                    border: `1px solid ${hasFace ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"}`,
+                  }}>
+                    {hasFace ? <UserCheck size={14} /> : <AlertCircle size={14} />}
+                    {hasFace ? "Face recognition active" : "Face recognition not set up"}
+                  </span>
+                </div>
               </div>
 
               {/* Face status badge — full width on mobile */}
-              <span style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-                padding: "9px 16px", borderRadius: 12, fontSize: 12.5, fontWeight: 700,
-                width: "100%", boxSizing: "border-box",
-                background: hasFace ? "rgba(16,185,129,0.08)" : "rgba(245,158,11,0.08)",
-                color: hasFace ? "#059669" : "#d97706",
-                border: `1px solid ${hasFace ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)"}`,
-              }}>
-                {hasFace ? <UserCheck size={14} /> : <AlertCircle size={14} />}
-                {hasFace ? "Face recognition active" : "Face recognition not set up"}
-              </span>
+              <div className="face-badge-mobile" style={{ display: "none" }}>
+                <span style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  padding: "9px 16px", borderRadius: 12, fontSize: 12.5, fontWeight: 700,
+                  width: "100%", boxSizing: "border-box",
+                  background: hasFace ? "rgba(16,185,129,0.08)" : "rgba(245,158,11,0.08)",
+                  color: hasFace ? "#059669" : "#d97706",
+                  border: `1px solid ${hasFace ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)"}`,
+                }}>
+                  {hasFace ? <UserCheck size={14} /> : <AlertCircle size={14} />}
+                  {hasFace ? "Face recognition active" : "Face recognition not set up"}
+                </span>
+              </div>
             </div>
 
             {/* Info grid — single column on mobile */}
@@ -336,29 +363,95 @@ export default function StudentProfilePage() {
           </div>
         </Card>
 
-        {/* ── Face recognition setup ─────────────────────────────────────── */}
-        <Card>
-          {/* Section header */}
-          <div style={{
-            padding: "20px 20px 0",
-            display: "flex", alignItems: "center", gap: 14, marginBottom: 20,
-          }}>
+        {/* ── Graduated Alumni Card ───────────────────────────────────────── */}
+        {profile.student?.status === "graduated" && (
+          <Card style={{ border: "1px solid rgba(16,185,129,0.3)", boxShadow: "0 8px 32px rgba(16,185,129,0.08)" }}>
+            <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: 20 }}>
+              
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <div style={{
+                  width: 52, height: 52, borderRadius: 16, background: "#10b981",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: "0 8px 20px rgba(16,185,129,0.3)"
+                }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="8" r="6"></circle>
+                    <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"></path>
+                  </svg>
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 20, fontWeight: 800, color: C.text, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                    Graduated 🎓
+                  </h3>
+                  <p style={{ fontSize: 13, color: C.body, margin: "2px 0 0 0" }}>
+                    Your academic journey here is complete
+                  </p>
+                </div>
+              </div>
+
+              <div style={{
+                background: "rgba(16,185,129,0.15)", borderRadius: 12, padding: "18px 20px",
+                border: "1px solid rgba(16,185,129,0.2)"
+              }}>
+                <p style={{ fontSize: 14.5, color: "#064e3b", lineHeight: 1.6, margin: 0 }}>
+                  Congratulations on graduating! Your profile and attendance records are permanently preserved. Face recognition uploads are no longer needed.
+                </p>
+              </div>
+
+              <div style={{
+                display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
+                background: "#f8fafc", borderRadius: 14, border: `1px solid ${C.border}`,
+                padding: "16px 8px", position: "relative"
+              }}>
+                {/* Dividers */}
+                <div style={{ position: "absolute", top: "20%", bottom: "20%", left: "33%", width: 1, background: C.border }} />
+                <div style={{ position: "absolute", top: "20%", bottom: "20%", left: "66%", width: 1, background: C.border }} />
+                
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <Book size={18} color="#10b981" />
+                  <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Records</p>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: C.text, margin: 0 }}>Preserved</p>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <CheckCircle2 size={18} color="#10b981" />
+                  <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Status</p>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: "#10b981", margin: 0 }}>Alumni</p>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <UserCheck size={18} color="#64748b" />
+                  <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Face ID</p>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: C.text, margin: 0 }}>{hasFace ? "Registered" : "Not Required"}</p>
+                </div>
+              </div>
+
+            </div>
+          </Card>
+        )}
+
+        {/* ── Face recognition setup (For active students) ──────────────── */}
+        {profile.student?.status !== "graduated" && (
+          <Card>
+            {/* Section header */}
             <div style={{
-              height: 46, width: 46, minWidth: 46, borderRadius: 14, background: ICON_GRAD,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 6px 18px rgba(15,164,175,0.28)",
+              padding: "20px 20px 0",
+              display: "flex", alignItems: "center", gap: 14, marginBottom: 20,
             }}>
-              <Camera size={20} color="#fff" />
+              <div style={{
+                height: 46, width: 46, minWidth: 46, borderRadius: 14, background: ICON_GRAD,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 6px 18px rgba(15,164,175,0.28)",
+              }}>
+                <Camera size={20} color="#fff" />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 15, fontWeight: 700, color: C.text, letterSpacing: "-0.02em", margin: 0 }}>
+                  Face Recognition Setup
+                </p>
+                <p style={{ fontSize: 12, color: C.body, marginTop: 2, margin: 0 }}>
+                  Upload photos for automatic AI attendance marking
+                </p>
+              </div>
             </div>
-            <div style={{ minWidth: 0 }}>
-              <p style={{ fontSize: 15, fontWeight: 700, color: C.text, letterSpacing: "-0.02em", margin: 0 }}>
-                Face Recognition Setup
-              </p>
-              <p style={{ fontSize: 12, color: C.body, marginTop: 2, margin: 0 }}>
-                Upload photos for automatic AI attendance marking
-              </p>
-            </div>
-          </div>
 
           <div style={{ padding: "0 20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
 
@@ -562,6 +655,7 @@ export default function StudentProfilePage() {
             </div>
           </div>
         </Card>
+        )}
       </div>
 
       <style>{`
@@ -572,10 +666,13 @@ export default function StudentProfilePage() {
             display: grid !important;
             grid-template-columns: repeat(3, 1fr) !important;
           }
+          .face-badge-mobile { display: none !important; }
         }
-          @media (max-width: 639px) {
-  .profile-header { text-align: center; }
-}
+        @media (max-width: 639px) {
+          .profile-header { text-align: center; }
+          .face-badge-desktop { display: none !important; }
+          .face-badge-mobile { display: block !important; margin-top: 16px; }
+        }
       `}</style>
     </>
   );
