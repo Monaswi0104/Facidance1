@@ -37,6 +37,7 @@ from backend.teacher.schemas import (
     RunTrainingRequest,
     SendCredentialsRequest,
     SubmitAttendanceRequest,
+    EnrollExistingRequest,
 )
 
 router = APIRouter(prefix="/teacher", tags=["Teacher"])
@@ -119,6 +120,18 @@ async def import_students(
     return await service.import_students(course_id, teacher["id"], body)
 
 
+@router.post(
+    "/courses/{course_id}/enroll-existing",
+    summary="Enroll an existing student directly into a course",
+)
+async def enroll_existing(
+    course_id: Annotated[str, Path()],
+    body: EnrollExistingRequest,
+    teacher: TeacherUser,
+):
+    return await service.enroll_existing_student(course_id, teacher["id"], body.student_id)
+
+
 # ---------------------------------------------------------------------------
 # Students (teacher-scoped)
 # ---------------------------------------------------------------------------
@@ -129,6 +142,15 @@ async def list_students(
     course_id: Optional[str] = Query(None, description="Filter to a single course"),
 ):
     return await service.get_teacher_students(teacher["id"], course_id)
+
+
+@router.get("/students/search", summary="Search all registered students (excludes those already in the course)")
+async def search_students(
+    teacher: TeacherUser,
+    q: str = Query("", description="Search query for name or email"),
+    course_id: Optional[str] = Query(None, description="Course ID to exclude already enrolled students"),
+):
+    return await service.search_students(teacher["id"], q, course_id)
 
 
 # ---------------------------------------------------------------------------

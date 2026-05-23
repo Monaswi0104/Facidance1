@@ -206,3 +206,23 @@ class MarkPresentRequest(BaseModel):
     course_id: str
     student_id: str
     date: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Search and Enroll Existing Students
+# ---------------------------------------------------------------------------
+
+class SearchStudentItem(BaseModel):
+    id: str
+    name: str
+    email: str
+    program: Optional[dict] = None
+    face_embedding: bool
+
+
+class SearchStudentsResponse(BaseModel):
+    students: List[SearchStudentItem]
+
+
+class EnrollExistingRequest(BaseModel):
+    student_id: str

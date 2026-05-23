@@ -207,6 +207,7 @@ async def delete_teacher(user_id: str) -> dict:
 async def get_departments() -> list[dict]:
     """Return all departments with program and teacher counts."""
     depts = await prisma.department.find_many(
+        where={"name": {"not": "General"}},
         include={
             "_count": {"select": {"programs": True, "teachers": True}}
         },
@@ -316,6 +317,7 @@ async def delete_department(dept_id: str) -> dict:
 
 async def get_programs() -> list[dict]:
     progs = await prisma.program.find_many(
+        where={"name": {"not": "All Programs"}},
         include={"department": True},
         order={"name": "asc"},
     )
@@ -400,6 +402,18 @@ async def create_course(data: CreateCourseRequest) -> dict:
                 ),
             )
         raise HTTPException(status_code=404, detail="Teacher not found in database")
+
+    # Handle 'ALL' programs (Common Course)
+    if data.program_id == "ALL":
+        global_prog = await prisma.program.find_first(where={"name": "All Programs"})
+        if not global_prog:
+            gen_dept = await prisma.department.find_first(where={"name": "General"})
+            if not gen_dept:
+                gen_dept = await prisma.department.create(data={"id": _new_id(), "name": "General"})
+            global_prog = await prisma.program.create(
+                data={"id": _new_id(), "name": "All Programs", "departmentId": gen_dept.id}
+            )
+        data.program_id = global_prog.id
 
     # Get program + department for code generation
     program = await prisma.program.find_unique(
@@ -529,7 +543,7 @@ async def get_students() -> dict:
                 }
             }
         },
-        order={"createdAt": "desc"},
+        order={"name": "asc"},
     )
 
     result = []

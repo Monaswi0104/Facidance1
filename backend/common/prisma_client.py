@@ -129,6 +129,12 @@ def _build_where(where: dict, start: int = 1) -> tuple[str, list]:
                 ph = ", ".join(f"${j}" for j in range(i, i + len(v["in"])))
                 clauses.append(f'"{k}" IN ({ph})')
                 values.extend(v["in"]); i += len(v["in"])
+            elif "notIn" in v:
+                ph = ", ".join(f"${j}" for j in range(i, i + len(v["notIn"])))
+                clauses.append(f'"{k}" NOT IN ({ph})')
+                values.extend(v["notIn"]); i += len(v["notIn"])
+            elif "not" in v:
+                clauses.append(f'"{k}" != ${i}'); values.append(v["not"]); i += 1
             elif "gte" in v:
                 clauses.append(f'"{k}" >= ${i}'); values.append(v["gte"]); i += 1
             elif "lte" in v:

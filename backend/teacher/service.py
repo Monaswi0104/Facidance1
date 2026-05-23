@@ -1007,7 +1007,9 @@ async def get_teacher_students(user_id: str, course_id: Optional[str] = None) ->
                     },
                 }
 
-    return list(student_map.values())
+    students_list = list(student_map.values())
+    students_list.sort(key=lambda s: s["user"]["name"].lower() if s["user"]["name"] else "")
+    return students_list
 
 
 # ---------------------------------------------------------------------------
@@ -1212,3 +1214,104 @@ async def get_at_risk_students(user_id: str) -> list[dict]:
     # Sort by worst attendance first
     at_risk.sort(key=lambda x: x["attendance_rate"])
     return at_risk
+
+
+# ---------------------------------------------------------------------------
+# Search and Enroll Existing Students
+# ---------------------------------------------------------------------------
+
+async def search_students(user_id: str, query: str, course_id: Optional[str] = None) -> dict:
+    """
+    Search all active students in the system by name or email.
+    Excludes students already enrolled in `course_id` if provided.
+    """
+    teacher = await prisma.teacher.find_unique(where={"userId": user_id})
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    from backend.common.prisma_client import db
+
+    q = f"%{query}%"
+
+    if course_id:
+        sql = '''
+            SELECT s.id, u.name, u.email, p.name as program_name, d.name as department_name, s."faceEmbedding"
+            FROM "Student" s
+            JOIN "User" u ON s."userId" = u.id
+            JOIN "Program" p ON s."programId" = p.id
+            JOIN "Department" d ON p."departmentId" = d.id
+            WHERE s.status != 'graduated'
+              AND (u.name ILIKE $1 OR u.email ILIKE $1)
+              AND s.id NOT IN (
+                  SELECT "B" FROM "_CourseStudents" WHERE "A" = $2
+              )
+            ORDER BY u.name ASC
+            LIMIT 200
+        '''
+        rows = await db.fetch(sql, q, course_id)
+    else:
+        sql = '''
+            SELECT s.id, u.name, u.email, p.name as program_name, d.name as department_name, s."faceEmbedding"
+            FROM "Student" s
+            JOIN "User" u ON s."userId" = u.id
+            JOIN "Program" p ON s."programId" = p.id
+            JOIN "Department" d ON p."departmentId" = d.id
+            WHERE s.status != 'graduated'
+              AND (u.name ILIKE $1 OR u.email ILIKE $1)
+            ORDER BY u.name ASC
+            LIMIT 200
+        '''
+        rows = await db.fetch(sql, q)
+
+    students = []
+    for r in rows:
+        students.append({
+            "id": r["id"],
+            "name": r["name"],
+            "email": r["email"],
+            "program": {
+                "name": r["program_name"],
+                "department": {"name": r["department_name"]}
+            },
+            "face_embedding": bool(r["faceEmbedding"])
+        })
+    
+    return {"students": students}
+
+
+async def enroll_existing_student(course_id: str, user_id: str, student_id: str) -> dict:
+    """
+    Enroll an already existing student into a course directly by ID.
+    """
+    teacher = await prisma.teacher.find_unique(where={"userId": user_id})
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    course = await prisma.course.find_first(
+        where={"id": course_id, "teacherId": teacher.id}
+    )
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found or access denied")
+
+    from backend.common.prisma_client import db
+
+    # Check if student exists
+    student_exists = await db.fetchval('SELECT id FROM "Student" WHERE id = $1', student_id)
+    if not student_exists:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Check if already enrolled
+    enrolment_exists = await db.fetchval(
+        'SELECT 1 FROM "_CourseStudents" WHERE "A" = $1 AND "B" = $2',
+        course_id, student_id
+    )
+    if enrolment_exists:
+        raise HTTPException(status_code=400, detail="Student already enrolled in this course")
+
+    # Enroll
+    await prisma.query_raw(
+        'INSERT INTO "_CourseStudents" ("A", "B") VALUES ($1, $2)',
+        course_id, student_id
+    )
+
+    return {"success": True, "message": "Student successfully enrolled"}
