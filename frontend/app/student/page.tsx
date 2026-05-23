@@ -5,12 +5,12 @@
  * Student Dashboard — redesigned to SaaS level matching teacher design system
  */
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   BookOpen, GraduationCap,
   BarChart3, CheckCircle2, TrendingUp,
-  TrendingDown, ArrowUpRight,
+  TrendingDown, ArrowUpRight, Award, Star, Sparkles,
 } from "lucide-react";
 import { useStudentStats, useStudentMe } from "@/hooks/useStudent";
 
@@ -56,7 +56,7 @@ function StatCard({ title, value, Icon, trend, trendLabel, loading }: {
         borderRadius: 18, padding: "22px 24px",
         boxShadow: hov ? SHADOW.hover : SHADOW.rest,
         transform: hov ? "translateY(-5px) scale(1.01)" : "translateY(0) scale(1)",
-        transition: EASE_ALL, overflow: "hidden",
+        transition: EASE_ALL, overflow: "hidden", position: "relative",
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -65,26 +65,18 @@ function StatCard({ title, value, Icon, trend, trendLabel, loading }: {
             {title}
           </p>
           {loading ? (
-            <div style={{ height: 36, width: 80, borderRadius: 8, marginTop: 10, background: "linear-gradient(90deg, #f1f5f9 25%, #e8f0f5 50%, #f1f5f9 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.6s ease-in-out infinite" }} />
+            <div style={{ width: 60, height: 34, borderRadius: 8, background: "linear-gradient(90deg,#f1f5f9 25%,#e8f0f5 50%,#f1f5f9 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.6s ease-in-out infinite", marginTop: 10 }} />
           ) : (
             <p style={{ fontSize: 34, fontWeight: 800, color: C.text, lineHeight: 1, marginTop: 10, letterSpacing: "-0.03em" }}>
               {value}
             </p>
           )}
-          {trendLabel && !loading && (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 10 }}>
-              <div style={{
-                display: "flex", alignItems: "center", gap: 4,
-                padding: "3px 8px", borderRadius: 20,
-                background: trend === "up" ? "rgba(16,185,129,0.1)" : "rgba(249,115,22,0.1)",
-              }}>
-                {trend === "up"
-                  ? <TrendingUp size={11} color="#10b981" />
-                  : <TrendingDown size={11} color="#f97316" />}
-                <span style={{ fontSize: 11, fontWeight: 700, color: trend === "up" ? "#10b981" : "#f97316" }}>
-                  {trendLabel}
-                </span>
-              </div>
+          {!loading && trend && (
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 8 }}>
+              {trend === "up" ? <TrendingUp size={12} color="#059669" /> : <TrendingDown size={12} color="#dc2626" />}
+              <span style={{ fontSize: 11, fontWeight: 600, color: trend === "up" ? "#059669" : "#dc2626" }}>
+                {trendLabel}
+              </span>
             </div>
           )}
         </div>
@@ -99,6 +91,12 @@ function StatCard({ title, value, Icon, trend, trendLabel, loading }: {
           <Icon size={22} color="#fff" strokeWidth={2} />
         </div>
       </div>
+      {/* Decorative corner */}
+      <div style={{
+        position: "absolute", bottom: -20, right: -20,
+        width: 80, height: 80, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(15,164,175,0.06) 0%, transparent 70%)",
+      }} />
     </div>
   );
 }
@@ -161,6 +159,296 @@ function CardHead({ title, sub, right }: { title: string; sub?: string; right?: 
   );
 }
 
+// ─── Confetti Particle ────────────────────────────────────────────────────────
+function ConfettiParticle({ index }: { index: number }) {
+  const config = useMemo(() => {
+    const colors = ["#FFD700", "#0FA4AF", "#FF6B6B", "#10b981", "#8B5CF6", "#F59E0B", "#EC4899", "#003135"];
+    const shapes = ["square", "circle", "strip"] as const;
+    return {
+      color: colors[index % colors.length],
+      shape: shapes[index % shapes.length],
+      left: `${(index * 7.3 + 3) % 100}%`,
+      delay: `${(index * 0.4) % 5}s`,
+      duration: `${3 + (index % 4) * 0.8}s`,
+      size: 6 + (index % 5) * 2,
+      rotation: index * 47,
+    };
+  }, [index]);
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: -20,
+        left: config.left,
+        width: config.shape === "strip" ? 4 : config.size,
+        height: config.shape === "strip" ? config.size * 2.5 : config.size,
+        background: config.color,
+        borderRadius: config.shape === "circle" ? "50%" : config.shape === "strip" ? 2 : 1,
+        opacity: 0.85,
+        animation: `confettiFall ${config.duration} ${config.delay} linear infinite`,
+        transform: `rotate(${config.rotation}deg)`,
+        pointerEvents: "none",
+      }}
+    />
+  );
+}
+
+// ─── Graduated Alumni View ────────────────────────────────────────────────────
+function AlumniDashboard({ name, totalCourses, totalPresent, attendancePct }: {
+  name: string; totalCourses: number; totalPresent: number; attendancePct: number;
+}) {
+  const router = useRouter();
+  const [btnHov, setBtnHov] = useState(false);
+
+  return (
+    <div style={{
+      position: "relative",
+      minHeight: "78vh",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      padding: "40px 20px",
+    }}>
+      {/* ── Animated background orbs ── */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+        <div style={{
+          position: "absolute", top: "-10%", left: "-5%",
+          width: 500, height: 500, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(15,164,175,0.12) 0%, transparent 70%)",
+          animation: "orbFloat1 8s ease-in-out infinite",
+        }} />
+        <div style={{
+          position: "absolute", bottom: "-15%", right: "-8%",
+          width: 600, height: 600, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(255,215,0,0.08) 0%, transparent 70%)",
+          animation: "orbFloat2 10s ease-in-out infinite",
+        }} />
+        <div style={{
+          position: "absolute", top: "30%", right: "15%",
+          width: 300, height: 300, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(139,92,246,0.06) 0%, transparent 70%)",
+          animation: "orbFloat3 12s ease-in-out infinite",
+        }} />
+        <div style={{
+          position: "absolute", bottom: "20%", left: "10%",
+          width: 250, height: 250, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(16,185,129,0.08) 0%, transparent 70%)",
+          animation: "orbFloat1 9s ease-in-out infinite reverse",
+        }} />
+      </div>
+
+      {/* ── Confetti ── */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+        {Array.from({ length: 30 }).map((_, i) => (
+          <ConfettiParticle key={i} index={i} />
+        ))}
+      </div>
+
+      {/* ── Main content ── */}
+      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", gap: 24, maxWidth: 600 }}>
+
+        {/* Graduation cap with golden glow */}
+        <div style={{ position: "relative" }}>
+          <div style={{
+            position: "absolute", inset: -18,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(255,215,0,0.25) 0%, rgba(255,215,0,0.08) 40%, transparent 70%)",
+            animation: "goldenPulse 3s ease-in-out infinite",
+          }} />
+          <div style={{
+            width: 100, height: 100, borderRadius: "50%",
+            background: "linear-gradient(135deg, #FFD700 0%, #F59E0B 50%, #D97706 100%)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 16px 48px rgba(255,215,0,0.35), 0 4px 16px rgba(217,119,6,0.25), inset 0 1px 2px rgba(255,255,255,0.3)",
+            animation: "capFloat 4s ease-in-out infinite",
+            position: "relative",
+          }}>
+            <GraduationCap size={48} color="#fff" strokeWidth={1.8} />
+          </div>
+          {/* Sparkle accents */}
+          <div style={{ position: "absolute", top: -4, right: -4, animation: "sparkle 2s ease-in-out infinite" }}>
+            <Sparkles size={18} color="#FFD700" />
+          </div>
+          <div style={{ position: "absolute", bottom: 2, left: -8, animation: "sparkle 2s ease-in-out infinite 0.7s" }}>
+            <Star size={14} color="#F59E0B" fill="#F59E0B" />
+          </div>
+          <div style={{ position: "absolute", top: 10, left: -12, animation: "sparkle 2s ease-in-out infinite 1.4s" }}>
+            <Star size={10} color="#FFD700" fill="#FFD700" />
+          </div>
+        </div>
+
+        {/* Headline */}
+        <div style={{ textAlign: "center" }}>
+          <p style={{
+            fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em",
+            background: "linear-gradient(90deg, #FFD700, #F59E0B, #D97706)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            marginBottom: 8,
+          }}>
+            Class of {new Date().getFullYear()}
+          </p>
+          <h1 style={{
+            fontSize: 42, fontWeight: 900, lineHeight: 1.1, letterSpacing: "-0.03em",
+            background: "linear-gradient(135deg, #003135 0%, #0FA4AF 60%, #FFD700 100%)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            margin: 0,
+          }}>
+            Congratulations, {name}! 🎓
+          </h1>
+        </div>
+
+        {/* Glassmorphism info card */}
+        <div style={{
+          background: "rgba(255,255,255,0.65)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          border: "1px solid rgba(255,255,255,0.5)",
+          borderRadius: 20,
+          padding: "24px 32px",
+          maxWidth: 480,
+          textAlign: "center",
+          boxShadow: "0 8px 32px rgba(0,49,53,0.08), inset 0 1px 0 rgba(255,255,255,0.6)",
+        }}>
+          <p style={{ fontSize: 15, color: C.body, lineHeight: 1.7, margin: 0 }}>
+            You have successfully graduated. Your academic journey has been recorded and preserved.
+            Access your complete attendance history and course records anytime.
+          </p>
+        </div>
+
+        {/* Academic summary stat cards */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 14,
+          width: "100%",
+          maxWidth: 500,
+        }}
+        className="alumni-stat-grid"
+        >
+          {[
+            { label: "Courses Completed", value: totalCourses, Icon: BookOpen, gradient: "linear-gradient(135deg, #003135, #0FA4AF)" },
+            { label: "Classes Attended", value: totalPresent, Icon: CheckCircle2, gradient: "linear-gradient(135deg, #059669, #10b981)" },
+            { label: "Attendance Rate", value: `${attendancePct.toFixed(0)}%`, Icon: Award, gradient: "linear-gradient(135deg, #D97706, #F59E0B)" },
+          ].map(({ label, value, Icon, gradient }) => (
+            <div key={label} style={{
+              background: "rgba(255,255,255,0.7)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,255,255,0.5)",
+              borderRadius: 16,
+              padding: "18px 14px",
+              textAlign: "center",
+              boxShadow: "0 4px 20px rgba(0,49,53,0.06)",
+              animation: "fadeSlideUp 0.6s ease-out both",
+            }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 12, margin: "0 auto 10px",
+                background: gradient,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 4px 14px rgba(0,0,0,0.12)",
+              }}>
+                <Icon size={18} color="#fff" strokeWidth={2} />
+              </div>
+              <p style={{ fontSize: 24, fontWeight: 800, color: C.text, lineHeight: 1, letterSpacing: "-0.02em", margin: 0 }}>
+                {value}
+              </p>
+              <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 6, lineHeight: 1.3 }}>
+                {label}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* CTA button with shimmer */}
+        <button
+          onClick={() => router.push("/student/history")}
+          onMouseEnter={() => setBtnHov(true)}
+          onMouseLeave={() => setBtnHov(false)}
+          style={{
+            position: "relative",
+            display: "inline-flex", alignItems: "center", gap: 10,
+            padding: "14px 32px",
+            borderRadius: 14,
+            fontSize: 15, fontWeight: 700,
+            cursor: "pointer",
+            background: "linear-gradient(135deg, #003135 0%, #024950 40%, #0FA4AF 100%)",
+            color: "#fff",
+            border: "none",
+            boxShadow: btnHov
+              ? "0 20px 50px rgba(15,164,175,0.4), 0 4px 16px rgba(0,49,53,0.2)"
+              : "0 12px 36px rgba(15,164,175,0.3), 0 2px 8px rgba(0,49,53,0.15)",
+            transform: btnHov ? "translateY(-3px) scale(1.02)" : "translateY(0) scale(1)",
+            transition: EASE_ALL,
+            overflow: "hidden",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {/* Shimmer overlay */}
+          <div style={{
+            position: "absolute", inset: 0,
+            background: "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.15) 50%, transparent 60%)",
+            backgroundSize: "200% 100%",
+            animation: "btnShimmer 3s ease-in-out infinite",
+            borderRadius: 14,
+          }} />
+          <BarChart3 size={18} style={{ position: "relative", zIndex: 1 }} />
+          <span style={{ position: "relative", zIndex: 1 }}>View Past Records</span>
+          <ArrowUpRight size={16} style={{ position: "relative", zIndex: 1, opacity: 0.7 }} />
+        </button>
+      </div>
+
+      {/* ── Keyframes ── */}
+      <style>{`
+        @keyframes confettiFall {
+          0% { transform: translateY(-20px) rotate(0deg); opacity: 0.9; }
+          25% { transform: translateY(25vh) rotate(120deg) translateX(15px); opacity: 0.8; }
+          50% { transform: translateY(50vh) rotate(240deg) translateX(-10px); opacity: 0.7; }
+          75% { transform: translateY(75vh) rotate(360deg) translateX(20px); opacity: 0.5; }
+          100% { transform: translateY(100vh) rotate(480deg) translateX(-5px); opacity: 0; }
+        }
+        @keyframes orbFloat1 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          33% { transform: translate(30px, -20px) scale(1.05); }
+          66% { transform: translate(-15px, 15px) scale(0.95); }
+        }
+        @keyframes orbFloat2 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(-25px, 20px) scale(1.08); }
+        }
+        @keyframes orbFloat3 {
+          0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+          50% { transform: translate(20px, -30px) scale(1.1); opacity: 1; }
+        }
+        @keyframes goldenPulse {
+          0%, 100% { transform: scale(1); opacity: 0.7; }
+          50% { transform: scale(1.15); opacity: 1; }
+        }
+        @keyframes capFloat {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-8px); }
+        }
+        @keyframes sparkle {
+          0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+          50% { transform: scale(0.5) rotate(180deg); opacity: 0.3; }
+        }
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes btnShimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        @media (max-width: 540px) {
+          .alumni-stat-grid { grid-template-columns: 1fr !important; max-width: 200px !important; margin: 0 auto; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function StudentDashboard() {
   const router = useRouter();
@@ -182,20 +470,12 @@ export default function StudentDashboard() {
 
   if (isGraduated) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 28, alignItems: "center", justifyContent: "center", minHeight: "70vh", textAlign: "center" }}>
-        <div style={{ width: 80, height: 80, borderRadius: "50%", background: "linear-gradient(135deg, #10b981 0%, #059669 100%)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16, boxShadow: "0 12px 32px rgba(16,185,129,0.3)" }}>
-          <GraduationCap size={40} color="#fff" />
-        </div>
-        <h1 style={{ fontSize: 36, fontWeight: 900, color: C.text, letterSpacing: "-0.03em", lineHeight: 1.1 }}>
-          Congratulations, Alumni! 🎉
-        </h1>
-        <p style={{ fontSize: 16, color: C.body, maxWidth: 500, lineHeight: 1.6 }}>
-          You have successfully graduated. Your attendance records and course history are preserved, but you no longer need to check in for classes.
-        </p>
-        <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
-          <Btn primary onClick={() => router.push("/student/history")}><BarChart3 size={16} /> View Past Records</Btn>
-        </div>
-      </div>
+      <AlumniDashboard
+        name={me?.name ?? "Alumni"}
+        totalCourses={totalCourses}
+        totalPresent={totalPresent}
+        attendancePct={attendancePct}
+      />
     );
   }
 

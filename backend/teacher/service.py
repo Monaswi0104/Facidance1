@@ -1055,14 +1055,13 @@ async def get_report(
     if not records:
         report = [
             {
-                "studentName": s.user.name,
+                "studentName": s.user.name + (" (Graduated)" if s.status == "graduated" else ""),
                 "studentEmail": s.user.email,
                 "totalSessions": 0,
                 "attended": 0,
                 "percentage": 0,
             }
             for s in (course.students or [])
-            if s.status != "graduated"
         ]
         report.sort(key=lambda x: x["studentName"])
         return report
@@ -1073,10 +1072,12 @@ async def get_report(
     # Map: student_id → attended timestamps
     student_stats: dict[str, dict] = {}
     for s in (course.students or []):
+        name_display = s.user.name
         if s.status == "graduated":
-            continue
+            name_display += " (Graduated)"
+            
         student_stats[s.id] = {
-            "studentName": s.user.name,
+            "studentName": name_display,
             "studentEmail": s.user.email,
             "attendedSessions": set(),
         }
