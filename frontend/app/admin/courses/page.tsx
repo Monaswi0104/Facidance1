@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { BookOpen, GraduationCap, Trash2, PlusCircle, X, Loader2, Users } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { BookOpen, GraduationCap, Trash2, PlusCircle, X, Loader2, Users, Edit2, ChevronDown, Search, Check } from "lucide-react";
 import { useCourses, useTeachers, usePrograms, useDepartments } from "@/hooks/useAdmin";
 import { coursesApi } from "@/lib/api";
+import { useToast } from "@/lib/useToast";
+import { ToastContainer } from "@/components/ToastContainer";
 
 const SPRING   = "cubic-bezier(.22,.68,0,1.2)";
 const EASE_ALL = `all 0.25s ${SPRING}`;
@@ -109,6 +111,7 @@ export default function CoursesPage() {
   const [form, setForm] = useState({ name: "", teacher_id: "", program_id: "", academic_year: "", semester_number: "", department_filter: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toasts, toast, removeToast } = useToast();
 
   const filteredTeachers = form.department_filter
     ? teachers.filter((t) => t.departmentId === form.department_filter)
@@ -120,6 +123,7 @@ export default function CoursesPage() {
     setSubmitting(true); setError(null);
     try {
       await coursesApi.create({ name, teacher_id, program_id, academic_year, semester_number: parseInt(semester_number, 10) });
+      toast.success("Course Added", `Successfully added course: ${name}`);
       setForm({ name: "", teacher_id: "", program_id: "", academic_year: "", semester_number: "", department_filter: "" });
       setShowForm(false); refetch();
     } catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed to create course"); }
@@ -128,8 +132,23 @@ export default function CoursesPage() {
 
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete course "${name}"?`)) return;
-    try { await coursesApi.delete(id); refetch(); }
+    try { 
+      await coursesApi.delete(id); 
+      toast.success("Course Deleted", `Successfully deleted course: ${name}`);
+      refetch(); 
+    }
     catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed to delete course"); }
+  }
+
+  async function handleChangeTeacher(courseId: string, teacherId: string, courseName: string) {
+    try {
+      await coursesApi.updateTeacher(courseId, teacherId);
+      const teacherName = teachers.find((t) => t.id === teacherId)?.name ?? "teacher";
+      toast.success("Teacher Reassigned", `${courseName} assigned to ${teacherName}`);
+      refetch();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to change teacher");
+    }
   }
 
   return (
@@ -272,7 +291,7 @@ export default function CoursesPage() {
       )}
 
       {/* Course list */}
-      <Card>
+      <Card style={{ overflow: "visible" }}>
         <div className="card-hd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ height: 30, width: 30, minWidth: 30, borderRadius: 9, background: ICON_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -301,32 +320,229 @@ export default function CoursesPage() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {courses.map((c) => (
-                <CourseRow key={c.id} course={c} onDelete={() => handleDelete(c.id, c.name)} />
+                <CourseRow
+                  key={c.id}
+                  course={c}
+                  teachers={teachers}
+                  onDelete={() => handleDelete(c.id, c.name)}
+                  onChangeTeacher={(teacherId: string) => handleChangeTeacher(c.id, teacherId, c.name)}
+                />
               ))}
             </div>
           )}
         </div>
       </Card>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 }
 
-function CourseRow({ course, onDelete }: {
-  course: { id: string; name: string; code?: string | null; teacher_name?: string | null; academic_year_name?: string | null; semester_name?: string | null };
+function CourseRow({ course, teachers, onDelete, onChangeTeacher }: {
+  course: { id: string; name: string; code?: string | null; teacher_id?: string | null; teacher_name?: string | null; academic_year_name?: string | null; semester_name?: string | null };
+  teachers: { id: string; name: string; departmentName?: string | null }[];
   onDelete: () => void;
+  onChangeTeacher: (teacherId: string) => void;
 }) {
+  const [showReassign, setShowReassign] = useState(false);
+  const [selectedTeacher, setSelectedTeacher] = useState("");
+  const [search, setSearch] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) setDropdownOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const filtered = teachers.filter((t) => {
+    const q = search.toLowerCase();
+    return t.name.toLowerCase().includes(q) || (t.departmentName ?? "").toLowerCase().includes(q);
+  });
+
+  const selectedObj = teachers.find((t) => t.id === selectedTeacher);
+
+  function getInitials(name: string) {
+    return name.split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+  }
+
   return (
-    <div className="course-row">
-      <div className="ci"><BookOpen size={14} color="#fff" /></div>
-      <div className="cinfo">
-        <p className="cname">{course.name}</p>
-        <div className="cmeta">
-          {course.code && <span className="ccode">{course.code}</span>}
-          {course.teacher_name && <span className="cteacher">{course.teacher_name}</span>}
-          <span className="csem">{[course.academic_year_name, course.semester_name].filter(Boolean).join(" · ") || "—"}</span>
+    <div style={{ borderRadius: 12, border: `1px solid rgba(226,232,240,0.7)`, background: "rgba(248,250,252,0.8)", transition: "all 0.2s ease", overflow: "visible", position: "relative", zIndex: dropdownOpen ? 10 : 1 }}>
+      <div className="course-row" style={{ border: "none", borderRadius: 0 }}>
+        <div className="ci"><BookOpen size={14} color="#fff" /></div>
+        <div className="cinfo">
+          <p className="cname">{course.name}</p>
+          <div className="cmeta">
+            {course.code && <span className="ccode">{course.code}</span>}
+            {course.teacher_name ? (
+              <span className="cteacher">{course.teacher_name}</span>
+            ) : (
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.1)", padding: "1px 7px", borderRadius: 5, whiteSpace: "nowrap" }}>
+                Unassigned
+              </span>
+            )}
+            <span className="csem">{[course.academic_year_name, course.semester_name].filter(Boolean).join(" · ") || "—"}</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button
+            onClick={() => { setShowReassign((p) => !p); setSelectedTeacher(""); setSearch(""); setDropdownOpen(false); }}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 3,
+              padding: "5px 9px", height: 28, borderRadius: 7,
+              border: `1px solid ${showReassign ? "rgba(15,164,175,0.3)" : "rgba(226,232,240,0.7)"}`,
+              background: showReassign ? "rgba(15,164,175,0.06)" : "transparent",
+              color: showReassign ? "#003135" : "#64748b",
+              fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Edit2 size={10} /> {showReassign ? "Cancel" : "Change Teacher"}
+          </button>
+          <button className="delbtn" onClick={onDelete}><Trash2 size={11} /> Delete</button>
         </div>
       </div>
-      <button className="delbtn" onClick={onDelete}><Trash2 size={11} /> Delete</button>
+      {showReassign && (
+        <div style={{
+          padding: "12px 14px 14px",
+          borderTop: "1px solid rgba(226,232,240,0.5)",
+          background: "linear-gradient(180deg, rgba(15,164,175,0.03) 0%, rgba(248,250,252,0.5) 100%)",
+          display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap",
+          animation: "slideDown 0.2s ease",
+        }}>
+          <style>{`@keyframes slideDown { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }`}</style>
+          <div ref={dropRef} style={{ flex: 1, minWidth: 220, position: "relative" }}>
+            <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>
+              Assign New Teacher
+            </label>
+            {/* Trigger */}
+            <button
+              onClick={() => setDropdownOpen((p) => !p)}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", gap: 10,
+                padding: "9px 12px", borderRadius: 10,
+                border: `1.5px solid ${dropdownOpen ? "rgba(15,164,175,0.4)" : "rgba(226,232,240,0.9)"}`,
+                background: "#fff", cursor: "pointer", transition: "all 0.15s ease",
+                boxShadow: dropdownOpen ? "0 0 0 3px rgba(15,164,175,0.08)" : "none",
+              }}
+            >
+              {selectedObj ? (
+                <>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 8,
+                    background: "linear-gradient(135deg, #003135, #0FA4AF)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#fff", fontSize: 10, fontWeight: 800, letterSpacing: "0.02em", flexShrink: 0,
+                  }}>{getInitials(selectedObj.name)}</div>
+                  <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{selectedObj.name}</p>
+                    {selectedObj.departmentName && <p style={{ fontSize: 10, color: "#64748b", margin: "1px 0 0" }}>{selectedObj.departmentName}</p>}
+                  </div>
+                </>
+              ) : (
+                <span style={{ flex: 1, textAlign: "left", fontSize: 13, color: "#94a3b8" }}>Select a teacher…</span>
+              )}
+              <ChevronDown size={14} color="#94a3b8" style={{ transform: dropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s ease", flexShrink: 0 }} />
+            </button>
+
+            {/* Dropdown */}
+            {dropdownOpen && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
+                background: "#fff", borderRadius: 12, border: "1px solid rgba(226,232,240,0.7)",
+                boxShadow: "0 12px 40px rgba(0,49,53,0.15), 0 0 0 1px rgba(0,0,0,0.03)",
+                zIndex: 50, overflow: "hidden",
+                animation: "dropIn 0.18s ease",
+              }}>
+                <style>{`@keyframes dropIn { from { opacity:0; transform:translateY(-4px) scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }`}</style>
+                {/* Search */}
+                <div style={{ padding: "8px 10px", borderBottom: "1px solid rgba(226,232,240,0.5)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid rgba(226,232,240,0.7)" }}>
+                    <Search size={13} color="#94a3b8" />
+                    <input
+                      autoFocus
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search teachers…"
+                      style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 12, color: "#0f172a" }}
+                    />
+                  </div>
+                </div>
+                {/* List */}
+                <div style={{ maxHeight: 220, overflowY: "auto", padding: "4px" }}>
+                  {filtered.length === 0 ? (
+                    <div style={{ padding: "20px 14px", textAlign: "center" }}>
+                      <p style={{ fontSize: 12, color: "#94a3b8", margin: 0 }}>No teachers found</p>
+                    </div>
+                  ) : filtered.map((t) => {
+                    const isSelected = selectedTeacher === t.id;
+                    const isCurrent = course.teacher_id === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => { setSelectedTeacher(t.id); setDropdownOpen(false); setSearch(""); }}
+                        style={{
+                          width: "100%", display: "flex", alignItems: "center", gap: 10,
+                          padding: "8px 10px", borderRadius: 8, border: "none",
+                          background: isSelected ? "rgba(15,164,175,0.08)" : "transparent",
+                          cursor: isCurrent ? "default" : "pointer",
+                          opacity: isCurrent ? 0.5 : 1,
+                          transition: "background 0.12s ease",
+                        }}
+                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "rgba(15,164,175,0.05)"; }}
+                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+                        disabled={isCurrent}
+                      >
+                        <div style={{
+                          width: 32, height: 32, borderRadius: 9,
+                          background: isSelected ? "linear-gradient(135deg, #003135, #0FA4AF)" : "linear-gradient(135deg, #e2e8f0, #cbd5e1)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          color: isSelected ? "#fff" : "#475569", fontSize: 11, fontWeight: 800,
+                          transition: "all 0.15s ease", flexShrink: 0,
+                        }}>{getInitials(t.name)}</div>
+                        <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+                          <p style={{ fontSize: 12.5, fontWeight: 600, color: "#0f172a", margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {t.name}
+                            {isCurrent && <span style={{ fontSize: 10, color: "#64748b", fontWeight: 500 }}> (current)</span>}
+                          </p>
+                          {t.departmentName && (
+                            <span style={{
+                              display: "inline-block", fontSize: 9.5, fontWeight: 600, marginTop: 2,
+                              padding: "1px 6px", borderRadius: 4,
+                              background: "rgba(15,164,175,0.08)", color: "#0FA4AF",
+                            }}>{t.departmentName}</span>
+                          )}
+                        </div>
+                        {isSelected && <Check size={14} color="#0FA4AF" strokeWidth={3} style={{ flexShrink: 0 }} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+          <button
+            disabled={!selectedTeacher}
+            onClick={() => { onChangeTeacher(selectedTeacher); setShowReassign(false); setSelectedTeacher(""); }}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "10px 18px", borderRadius: 10, border: "none",
+              background: selectedTeacher
+                ? "linear-gradient(135deg, #003135 0%, #0FA4AF 100%)"
+                : "#e2e8f0",
+              color: selectedTeacher ? "#fff" : "#94a3b8",
+              fontSize: 13, fontWeight: 700,
+              cursor: selectedTeacher ? "pointer" : "not-allowed",
+              transition: "all 0.2s ease", whiteSpace: "nowrap",
+              boxShadow: selectedTeacher ? "0 4px 14px rgba(15,164,175,0.3)" : "none",
+            }}
+          >
+            <Check size={14} /> Assign Teacher
+          </button>
+        </div>
+      )}
     </div>
   );
 }

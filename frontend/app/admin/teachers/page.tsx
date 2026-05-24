@@ -4,6 +4,8 @@ import { useState } from "react";
 import { UserPlus, Building2, Trash2, Mail, CheckCircle2, Loader2, Users } from "lucide-react";
 import { useTeachers, useDepartments } from "@/hooks/useAdmin";
 import { teachersApi } from "@/lib/api";
+import { useToast } from "@/lib/useToast";
+import { ToastContainer } from "@/components/ToastContainer";
 
 const SPRING   = "cubic-bezier(.22,.68,0,1.2)";
 const EASE_ALL = `all 0.25s ${SPRING}`;
@@ -49,11 +51,16 @@ export default function TeachersPage() {
   const [activeDeptId, setActiveDeptId] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toasts, toast, removeToast } = useToast();
 
   async function handleApprove(teacherUserId: string) {
     if (!activeDeptId) return;
     setActionLoading(true); setError(null);
-    try { await teachersApi.approve(teacherUserId, activeDeptId); setActiveTeacherId(null); setActiveDeptId(""); refetch(); }
+    try { 
+      await teachersApi.approve(teacherUserId, activeDeptId); 
+      toast.success("Teacher Approved", "Successfully approved and assigned department.");
+      setActiveTeacherId(null); setActiveDeptId(""); refetch(); 
+    }
     catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed to approve teacher"); }
     finally { setActionLoading(false); }
   }
@@ -61,7 +68,11 @@ export default function TeachersPage() {
   async function handleDelete(userId: string) {
     if (!confirm("Delete this teacher? This cannot be undone.")) return;
     setActionLoading(true); setError(null);
-    try { await teachersApi.delete(userId); refetch(); }
+    try { 
+      await teachersApi.delete(userId); 
+      toast.success("Teacher Deleted", "Successfully removed teacher record.");
+      refetch(); 
+    }
     catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed to delete teacher"); }
     finally { setActionLoading(false); }
   }
@@ -214,6 +225,7 @@ export default function TeachersPage() {
           </div>
         </Card>
       </div>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 }

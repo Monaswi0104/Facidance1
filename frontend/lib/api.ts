@@ -94,7 +94,7 @@ export interface Course {
   name: string;
   code: string;
   entry_code: string;
-  teacher_id: string;
+  teacher_id: string | null;
   teacher_name: string | null;
   semester_id: string;
   semester_name: string | null;
@@ -110,6 +110,11 @@ export const coursesApi = {
     academic_year: string;
     semester_number: number;
   }) => apiFetch<{ course: Course }>("/admin/courses", { method: "POST", body: JSON.stringify(data) }),
+  updateTeacher: (courseId: string, teacherId: string) =>
+    apiFetch<{ course: Course }>(`/admin/courses/${courseId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ teacher_id: teacherId }),
+    }),
   delete: (id: string) => apiFetch(`/admin/courses/${id}`, { method: "DELETE" }),
 };
 

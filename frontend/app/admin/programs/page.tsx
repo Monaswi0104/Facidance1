@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { PlusCircle, X, BookOpen, Check, Building2, Users, Trash2, Loader2 } from "lucide-react";
 import { programsApi, departmentsApi, studentsApi, Program, Department } from "@/lib/api";
+import { useToast } from "@/lib/useToast";
+import { ToastContainer } from "@/components/ToastContainer";
 
 const SPRING   = "cubic-bezier(.22,.68,0,1.2)";
 const EASE_ALL = `all 0.25s ${SPRING}`;
@@ -72,6 +74,7 @@ export default function ProgramsPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toasts, toast, removeToast } = useToast();
 
   async function fetchAll() {
     const [pd, dd, sd] = await Promise.all([programsApi.list(), departmentsApi.list(), studentsApi.list()]);
@@ -81,7 +84,11 @@ export default function ProgramsPage() {
   async function addProgram() {
     if (!name.trim() || !departmentId.trim()) return;
     setLoading(true); setError(null);
-    try { await programsApi.create(name.trim(), departmentId.trim()); setName(""); setDepartmentId(""); setShowForm(false); await fetchAll(); }
+    try { 
+      await programsApi.create(name.trim(), departmentId.trim()); 
+      toast.success("Program Added", `Successfully added program: ${name.trim()}`);
+      setName(""); setDepartmentId(""); setShowForm(false); await fetchAll(); 
+    }
     catch (err) { setError(err instanceof Error ? err.message : "Failed to add program"); }
     finally { setLoading(false); }
   }
@@ -89,7 +96,11 @@ export default function ProgramsPage() {
   async function deleteProgram(id: string, programName: string) {
     if (!confirm(`Delete "${programName}"? This cannot be undone.`)) return;
     setError(null);
-    try { await programsApi.delete(id); await fetchAll(); }
+    try { 
+      await programsApi.delete(id); 
+      toast.success("Program Deleted", `Successfully deleted program: ${programName}`);
+      await fetchAll(); 
+    }
     catch (err) { setError(err instanceof Error ? err.message : "Failed to delete"); }
   }
 
@@ -218,6 +229,7 @@ export default function ProgramsPage() {
           )}
         </div>
       </Card>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 }

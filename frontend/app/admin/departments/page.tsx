@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { PlusCircle, X, Building2, Check, BookOpen, Users, Trash2, Loader2 } from "lucide-react";
 import { departmentsApi, Department } from "@/lib/api";
+import { useToast } from "@/lib/useToast";
+import { ToastContainer } from "@/components/ToastContainer";
 
 const SPRING   = "cubic-bezier(.22,.68,0,1.2)";
 const EASE_ALL = `all 0.25s ${SPRING}`;
@@ -87,6 +89,7 @@ export default function DepartmentsPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toasts, toast, removeToast } = useToast();
 
   async function fetchDepartments() {
     try { const data = await departmentsApi.list(); setDepartments(data.departments); }
@@ -96,7 +99,11 @@ export default function DepartmentsPage() {
   async function addDepartment() {
     if (!newDept.trim()) return;
     setLoading(true); setError(null);
-    try { await departmentsApi.create(newDept.trim()); setNewDept(""); setShowForm(false); await fetchDepartments(); }
+    try { 
+      await departmentsApi.create(newDept.trim()); 
+      toast.success("Department Added", `Successfully added department: ${newDept.trim()}`);
+      setNewDept(""); setShowForm(false); await fetchDepartments(); 
+    }
     catch (err) { setError(err instanceof Error ? err.message : "Failed to add department"); }
     finally { setLoading(false); }
   }
@@ -104,7 +111,11 @@ export default function DepartmentsPage() {
   async function deleteDepartment(id: string, name: string) {
     if (!confirm(`Delete "${name}" department? This cannot be undone.`)) return;
     setError(null);
-    try { await departmentsApi.delete(id); await fetchDepartments(); }
+    try { 
+      await departmentsApi.delete(id); 
+      toast.success("Department Deleted", `Successfully deleted department: ${name}`);
+      await fetchDepartments(); 
+    }
     catch (err) { setError(err instanceof Error ? err.message : "Failed to delete department"); }
   }
 
@@ -229,6 +240,7 @@ export default function DepartmentsPage() {
           )}
         </div>
       </Card>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 }
