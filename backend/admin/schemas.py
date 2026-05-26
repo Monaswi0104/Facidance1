@@ -55,7 +55,10 @@ class CreateDepartmentRequest(BaseModel):
     @field_validator("name")
     @classmethod
     def strip_name(cls, v: str) -> str:
-        return v.strip()
+        v = v.strip()
+        if v.isdigit():
+            raise ValueError("Department name cannot contain only numbers")
+        return v
 
 
 class DepartmentResponse(BaseModel):
@@ -98,12 +101,16 @@ class CourseResponse(BaseModel):
     name: str
     code: str
     entry_code: str
-    teacher_id: str
+    teacher_id: Optional[str] = None
     teacher_name: Optional[str] = None
     semester_id: str
     semester_name: Optional[str] = None
     academic_year_name: Optional[str] = None
     program_name: Optional[str] = None
+
+
+class UpdateCourseTeacherRequest(BaseModel):
+    teacher_id: str = Field(..., description="Teacher.id to assign to the course")
 
 
 # ---------------------------------------------------------------------------

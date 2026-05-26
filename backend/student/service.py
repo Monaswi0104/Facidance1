@@ -9,7 +9,9 @@ from __future__ import annotations
 
 
 from fastapi import HTTPException
-
+import os
+import json
+from groq import Groq
 from backend.common.prisma_client import prisma
 from backend.student.schemas import (
     JoinCourseRequest,
@@ -17,6 +19,183 @@ from backend.student.schemas import (
 )
 
 
+async def get_ai_suggestions(user_id: str) -> dict:
+    """
+    Generate personalised AI suggestions for a student with low attendance.
+    Uses Groq (free tier) with llama-3.1-8b-instant.
+    Mirrors GET /api/student/ai-suggestions.
+    """
+    stats   = await get_stats(user_id)
+    history = await get_attendance_history(user_id)
+
+    attendance_pct: float = stats["attendance_percentage"]
+    total_courses: int    = stats["total_courses"]
+    total_present: int    = stats["total_present"]
+    summary: list[dict]   = history.get("summary", [])
+
+    # Pre-compute per-course session gaps — don't let the AI guess the math
+    course_data = []
+    for s in sorted(summary, key=lambda x: x["rate"]):
+        total   = s["total_sessions"]
+        present = s["present"]
+        rate    = s["rate"]
+
+        if rate < 75 and total > 0:
+            # Solve: (present + x) / (total + x) >= 0.75
+            needed = max(0, int(((0.75 * total) - present) / 0.25) + 1)
+        else:
+            # How many can they still miss while staying >= 75%?
+            # Solve: (present) / (total + x) >= 0.75  →  x = present/0.75 - total
+            can_miss = max(0, int(present / 0.75) - total)
+            needed = -can_miss  # negative = buffer remaining
+
+        course_data.append({**s, "sessions_needed_for_75": needed})
+
+    course_lines = "\n".join(
+        f"  - {s['course_name']}: {s['rate']}% "
+        f"({s['present']} present / {s['total_sessions']} sessions)"
+        + (
+            f" — must attend next {s['sessions_needed_for_75']} consecutive sessions to reach 75%"
+            if s["sessions_needed_for_75"] > 0
+            else f" ✓ above 75% (can miss {abs(s['sessions_needed_for_75'])} more sessions safely)"
+        )
+        for s in course_data
+    )
+
+    prompt = f"""You are an academic advisor helping a university student improve their attendance.
+
+Student attendance snapshot:
+- Overall attendance: {attendance_pct}%
+- Total courses enrolled: {total_courses}
+- Total sessions attended: {total_present}
+- Minimum required attendance: 75% per course
+
+Per-course breakdown (worst first):
+{course_lines if course_lines else "  No course data available yet."}
+
+Your task:
+1. Briefly acknowledge the student's overall situation (1-2 sentences, empathetic but direct).
+2. For EACH course below 75%: state exactly how many consecutive sessions they must attend to reach 75% — use the numbers already given above, do not recalculate.
+3. For courses already above 75%: state exactly how many sessions they can still afford to miss.
+4. Give 4 specific, actionable suggestions tailored to the weakest courses by name.
+5. Add one motivational closing sentence.
+
+Respond ONLY with this JSON — no markdown, no extra text:
+{{
+  "severity": "low",
+  "summary": "...",
+  "urgent_courses": [
+    {{
+      "name": "Course Name",
+      "current_rate": 72.5,
+      "sessions_needed": 3,
+      "advice": "Attend the next 3 sessions consecutively to reach 75%."
+    }}
+  ],
+  "safe_courses": [
+    {{
+      "name": "Course Name",
+      "current_rate": 91.3,
+      "can_miss": 10,
+      "advice": "You can afford to miss up to 10 more sessions and stay above 75%."
+    }}
+  ],
+  "suggestions": [
+    {{ "title": "...", "detail": "..." }},
+    {{ "title": "...", "detail": "..." }},
+    {{ "title": "...", "detail": "..." }},
+    {{ "title": "...", "detail": "..." }}
+  ],
+  "motivation": "..."
+}}
+
+severity must be: "low" if overall attendance >= 75%, "medium" if 50-74%, "high" if below 50%.
+Use the EXACT numbers already provided above — do not recalculate. Keep each suggestion detail under 50 words."""
+
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+
+    client = Groq(api_key=api_key)
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a helpful academic advisor. Always respond with valid JSON only. Never recalculate numbers — use exactly what the user provides.",
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        temperature=0.4,
+        max_tokens=1000,
+    )
+
+    raw = response.choices[0].message.content.strip()
+
+    # Strip markdown fences if model adds them anyway
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = {"raw": raw, "parse_error": True}
+
+    # ── Patch AI output with ground-truth numbers ──────────────────────────
+    # LLMs hallucinate / rescale numbers and miscategorize courses.
+    # Rebuild urgent/safe lists entirely from server-computed course_data.
+    real = {s["course_name"]: s for s in course_data}
+
+    # Collect whatever advice text the AI wrote for each course (best-effort)
+    all_ai_courses = {
+        **{c["name"]: c for c in parsed.get("urgent_courses", [])},
+        **{c["name"]: c for c in parsed.get("safe_courses", [])},
+    }
+
+    corrected_urgent = []
+    corrected_safe   = []
+
+    for course_name, match in real.items():
+        ai_entry = all_ai_courses.get(course_name, {})
+
+        if match["sessions_needed_for_75"] > 0:
+            # Truly below 75% — urgent
+            corrected_urgent.append({
+                "name":            course_name,
+                "current_rate":    match["rate"],
+                "sessions_needed": match["sessions_needed_for_75"],
+                "advice":          ai_entry.get(
+                    "advice",
+                    f"Attend the next {match['sessions_needed_for_75']} sessions consecutively to reach 75%.",
+                ),
+            })
+        else:
+            # At or above 75% — safe
+            corrected_safe.append({
+                "name":         course_name,
+                "current_rate": match["rate"],
+                "can_miss":     abs(match["sessions_needed_for_75"]),
+                "advice":       ai_entry.get(
+                    "advice",
+                    f"You can afford to miss up to {abs(match['sessions_needed_for_75'])} more sessions and stay above 75%.",
+                ),
+            })
+
+    parsed["urgent_courses"] = corrected_urgent
+    parsed["safe_courses"]   = corrected_safe
+    # ──────────────────────────────────────────────────────────────────────
+
+    return {
+        "attendance_percentage": attendance_pct,
+        "suggestions": parsed,
+    }
 # ---------------------------------------------------------------------------
 # Me / Profile
 # ---------------------------------------------------------------------------

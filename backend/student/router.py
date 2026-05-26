@@ -56,6 +56,13 @@ async def get_stats(current: StudentUser):
     return await service.get_stats(current["id"])
 
 
+@router.get(
+    "/ai-suggestions",
+    summary="Get AI-powered attendance improvement suggestions",
+)
+async def ai_suggestions(current: StudentUser):
+    return await service.get_ai_suggestions(current["id"])
+
 # ---------------------------------------------------------------------------
 # Courses
 # ---------------------------------------------------------------------------

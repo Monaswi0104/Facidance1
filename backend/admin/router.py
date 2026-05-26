@@ -17,6 +17,7 @@ from backend.admin.schemas import (
     CreateDepartmentRequest,
     CreateProgramRequest,
     CreateTeacherRequest,
+    UpdateCourseTeacherRequest,
     UpdateStudentRequest,
 )
 
@@ -124,6 +125,16 @@ async def create_course(body: CreateCourseRequest, _: AdminUser):
     return {"course": course}
 
 
+@router.patch("/courses/{course_id}", summary="Reassign teacher for a course")
+async def update_course_teacher(
+    course_id: Annotated[str, Path()],
+    body: UpdateCourseTeacherRequest,
+    _: AdminUser,
+):
+    course = await service.update_course_teacher(course_id, body.teacher_id)
+    return {"course": course}
+
+
 @router.delete("/courses/{course_id}", summary="Delete a course and its attendance")
 async def delete_course(course_id: Annotated[str, Path()], _: AdminUser):
     return await service.delete_course(course_id)
@@ -155,6 +166,11 @@ async def delete_student(user_id: Annotated[str, Path()], _: AdminUser):
 @router.post("/students/{user_id}/graduate", summary="Mark a student as graduated")
 async def graduate_student(user_id: Annotated[str, Path()], _: AdminUser):
     return await service.graduate_student(user_id)
+
+
+@router.post("/students/{user_id}/ungraduate", summary="Mark a student as active")
+async def ungraduate_student(user_id: Annotated[str, Path()], _: AdminUser):
+    return await service.ungraduate_student(user_id)
 
 
 # ---------------------------------------------------------------------------

@@ -122,7 +122,7 @@ async def approve_teacher(data: ApproveTeacherRequest) -> dict:
     return {
         "message": "Teacher approved successfully",
         "teacher_id": teacher.id,
-        "department_id": teacher.department_id,
+        "department_id": teacher.departmentId,
     }
 
 
@@ -156,9 +156,24 @@ async def create_teacher(data: CreateTeacherRequest) -> dict:
 async def delete_teacher(user_id: str) -> dict:
     """
     Delete Teacher record (if exists) then User record.
-    Mirrors DELETE /api/admin/teachers and DELETE /api/admin/teachers/[id].
+    Courses owned by this teacher are preserved with teacherId set to NULL
+    so they can be reassigned to another teacher.
     """
-    await prisma.teacher.delete_many(where={"userId": user_id})
+    from backend.common.prisma_client import db
+
+    teacher = await prisma.teacher.find_first(where={"userId": user_id})
+
+    if teacher:
+        # Unlink courses from this teacher (set teacherId to NULL)
+        await db.execute(
+            'UPDATE "Course" SET "teacherId" = NULL WHERE "teacherId" = $1',
+            teacher.id,
+        )
+
+        # Delete the Teacher record
+        await prisma.teacher.delete_many(where={"userId": user_id})
+
+    # Delete the User record
     await prisma.user.delete(where={"id": user_id})
     return {"message": "Teacher deleted successfully"}
 
@@ -170,12 +185,15 @@ async def delete_teacher(user_id: str) -> dict:
 async def get_departments() -> list[dict]:
     """Return all departments with program and teacher counts."""
     depts = await prisma.department.find_many(
+        where={"name": {"not": "General"}},
         include={
             "_count": {"select": {"programs": True, "teachers": True}}
         },
-        order={"name": "asc"},
+        # order= removed: custom prisma_client does not support it and
+        # generates invalid SQL ("syntax error at or near ORDER").
+        # Sorting is done in Python below instead.
     )
-    return [
+    result = [
         {
             "id": d.id,
             "name": d.name,
@@ -184,6 +202,8 @@ async def get_departments() -> list[dict]:
         }
         for d in depts
     ]
+    result.sort(key=lambda x: x["name"])
+    return result
 
 
 async def create_department(data: CreateDepartmentRequest) -> dict:
@@ -278,11 +298,13 @@ async def delete_department(dept_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def get_programs() -> list[dict]:
+    """Return all programs with their department."""
     progs = await prisma.program.find_many(
+        where={"name": {"not": "All Programs"}},
         include={"department": True},
-        order={"name": "asc"},
+        # order= removed: same reason as get_departments above.
     )
-    return [
+    result = [
         {
             "id": p.id,
             "name": p.name,
@@ -291,6 +313,8 @@ async def get_programs() -> list[dict]:
         }
         for p in progs
     ]
+    result.sort(key=lambda x: x["name"])
+    return result
 
 
 async def create_program(data: CreateProgramRequest) -> dict:
@@ -364,6 +388,18 @@ async def create_course(data: CreateCourseRequest) -> dict:
             )
         raise HTTPException(status_code=404, detail="Teacher not found in database")
 
+    # Handle 'ALL' programs (Common Course)
+    if data.program_id == "ALL":
+        global_prog = await prisma.program.find_first(where={"name": "All Programs"})
+        if not global_prog:
+            gen_dept = await prisma.department.find_first(where={"name": "General"})
+            if not gen_dept:
+                gen_dept = await prisma.department.create(data={"id": _new_id(), "name": "General"})
+            global_prog = await prisma.program.create(
+                data={"id": _new_id(), "name": "All Programs", "departmentId": gen_dept.id}
+            )
+        data.program_id = global_prog.id
+
     # Get program + department for code generation
     program = await prisma.program.find_unique(
         where={"id": data.program_id},
@@ -429,6 +465,41 @@ async def delete_course(course_id: str) -> dict:
     return {"message": "Course deleted successfully"}
 
 
+async def update_course_teacher(course_id: str, teacher_id: str) -> dict:
+    """
+    Reassign a course to a different teacher.
+    Verifies the course and teacher both exist before updating.
+    """
+    course = await prisma.course.find_unique(where={"id": course_id})
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    teacher = await prisma.teacher.find_unique(
+        where={"id": teacher_id},
+        include={"user": True},
+    )
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    updated = await prisma.course.update(
+        where={"id": course_id},
+        data={"teacherId": teacher_id},
+        include={
+            "teacher": {"include": {"user": True}},
+            "semester": {
+                "include": {
+                    "academicYear": {
+                        "include": {
+                            "program": {"include": {"department": True}}
+                        }
+                    }
+                }
+            },
+        },
+    )
+    return _serialize_course(updated)
+
+
 def _serialize_course(c) -> dict:
     return {
         "id": c.id,
@@ -492,7 +563,8 @@ async def get_students() -> dict:
                 }
             }
         },
-        order={"createdAt": "desc"},
+        # order= removed for the same reason as departments/programs.
+        # Sorted in Python below.
     )
 
     result = []
@@ -532,7 +604,7 @@ async def get_students() -> dict:
                     else None
                 ),
                 "status": s.status if s else "unknown",
-                "joinedAt": s.joinedAt.isoformat() if s else None,
+                "joined_at": s.joinedAt.isoformat() if s else None,
                 "graduated": graduated,
                 "courses_count": len(s.courses) if (s and s.courses) else 0,
                 "courses": [
@@ -561,8 +633,11 @@ async def get_students() -> dict:
             }
         )
 
+    result.sort(key=lambda x: x["name"])
+
     programs = await prisma.program.find_many(
-        include={"department": True}, order={"name": "asc"}
+        include={"department": True},
+        # order= removed here too, sorting in Python below.
     )
     program_list = [
         {
@@ -573,6 +648,7 @@ async def get_students() -> dict:
         }
         for p in programs
     ]
+    program_list.sort(key=lambda x: x["name"])
 
     return {"students": result, "programs": program_list}
 
@@ -601,7 +677,13 @@ async def update_student(user_id: str, data: UpdateStudentRequest) -> dict:
 
 
 async def delete_student(user_id: str) -> dict:
-    """DELETE student user. Mirrors DELETE /api/admin/students/[id]."""
+    """DELETE student user. Cascades appropriately."""
+    from backend.common.prisma_client import db
+    student = await prisma.student.find_unique(where={"userId": user_id})
+    if student:
+        await prisma.attendance.delete_many(where={"studentId": student.id})
+        await db.execute('DELETE FROM "_CourseStudents" WHERE "B" = $1', student.id)
+        await prisma.student.delete(where={"id": student.id})
     await prisma.user.delete(where={"id": user_id})
     return {"success": True}
 
@@ -615,6 +697,17 @@ async def graduate_student(user_id: str) -> dict:
         where={"id": student.id}, data={"status": "graduated"}
     )
     return {"message": "Student marked as graduated"}
+
+
+async def ungraduate_student(user_id: str) -> dict:
+    """Revert a student from graduated back to active."""
+    student = await prisma.student.find_unique(where={"userId": user_id})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    await prisma.student.update(
+        where={"id": student.id}, data={"status": "active"}
+    )
+    return {"message": "Student marked as active"}
 
 
 # ---------------------------------------------------------------------------

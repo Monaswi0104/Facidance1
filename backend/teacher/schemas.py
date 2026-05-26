@@ -61,7 +61,7 @@ class CourseStudentsResponse(BaseModel):
 class ImportStudentItem(BaseModel):
     name: str
     email: EmailStr
-    dob: str = Field(..., description="Date of birth used as initial password (YYYY-MM-DD or DD/MM/YYYY)")
+    dob: str = Field("", description="Date of birth used as initial password (YYYY-MM-DD or DD/MM/YYYY). Optional for existing students.")
     program_id: str
 
 
@@ -196,3 +196,33 @@ class SendCredentialStudent(BaseModel):
 
 class SendCredentialsRequest(BaseModel):
     students: List[SendCredentialStudent]
+
+
+# ---------------------------------------------------------------------------
+# Manual attendance override
+# ---------------------------------------------------------------------------
+
+class MarkPresentRequest(BaseModel):
+    course_id: str
+    student_id: str
+    date: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Search and Enroll Existing Students
+# ---------------------------------------------------------------------------
+
+class SearchStudentItem(BaseModel):
+    id: str
+    name: str
+    email: str
+    program: Optional[dict] = None
+    face_embedding: bool
+
+
+class SearchStudentsResponse(BaseModel):
+    students: List[SearchStudentItem]
+
+
+class EnrollExistingRequest(BaseModel):
+    student_id: str

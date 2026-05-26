@@ -8,6 +8,8 @@ No HTTP concerns — only DB access and token generation.
 from __future__ import annotations
 
 import os
+import uuid
+from datetime import datetime
 
 import bcrypt
 import jwt
@@ -134,10 +136,12 @@ async def register_teacher(data: RegisterTeacherRequest) -> dict:
     hashed = _hash_password(data.password)
     user = await prisma.user.create(
         data={
+            "id": str(uuid.uuid4()),
             "name": data.name,
             "email": email,
             "password": hashed,
             "role": "TEACHER",
+            "updatedAt": datetime.utcnow(),
         }
     )
 
