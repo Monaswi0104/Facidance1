@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PlusCircle, X, Building2, Check, BookOpen, Users, Trash2, Loader2 } from "lucide-react";
-import { departmentsApi, Department } from "@/lib/api";
+import { PlusCircle, X, Building2, Check, BookOpen, Users, Trash2, Loader2, Mail, GraduationCap } from "lucide-react";
+import { departmentsApi, Department, programsApi, Program, teachersApi, Teacher } from "@/lib/api";
 import { useToast } from "@/lib/useToast";
 import { ToastContainer } from "@/components/ToastContainer";
 
@@ -89,6 +89,9 @@ export default function DepartmentsPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDept, setSelectedDept] = useState<Department | null>(null);
+  const [allPrograms, setAllPrograms] = useState<Program[]>([]);
+  const [allTeachers, setAllTeachers] = useState<Teacher[]>([]);
   const { toasts, toast, removeToast } = useToast();
 
   async function fetchDepartments() {
@@ -120,7 +123,19 @@ export default function DepartmentsPage() {
   }
 
   useEffect(() => {
-    (async () => { setInitialLoading(true); await fetchDepartments(); setInitialLoading(false); })();
+    (async () => {
+      setInitialLoading(true);
+      await fetchDepartments();
+      try {
+        const [progData, teachData] = await Promise.all([
+          programsApi.list(),
+          teachersApi.list(),
+        ]);
+        setAllPrograms(progData.programs);
+        setAllTeachers(teachData.teachers.filter((t: Teacher) => !t.isPending));
+      } catch {}
+      setInitialLoading(false);
+    })();
   }, []);
 
   const totalPrograms = departments.reduce((sum, d) => sum + (d.programs_count ?? 0), 0);
@@ -234,21 +249,90 @@ export default function DepartmentsPage() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {departments.map((dept) => (
-                <DeptRow key={dept.id} dept={dept} onDelete={() => deleteDepartment(dept.id, dept.name)} />
+                <DeptRow key={dept.id} dept={dept} onClick={() => setSelectedDept(dept)} onDelete={() => deleteDepartment(dept.id, dept.name)} />
               ))}
             </div>
           )}
         </div>
       </Card>
+
+      {/* Department Detail Modal */}
+      {selectedDept && (() => {
+        const deptPrograms = allPrograms.filter(p => p.department_id === selectedDept.id);
+        const deptTeachers = allTeachers.filter(t => t.departmentId === selectedDept.id);
+        return (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15,23,42,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div style={{ background: C.white, borderRadius: 20, padding: 30, width: "100%", maxWidth: 500, maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.15)", position: "relative" }}>
+              <button onClick={() => setSelectedDept(null)} style={{ position: "absolute", top: 16, right: 16, background: "rgba(226,232,240,0.5)", border: "none", width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.muted, zIndex: 10 }}>
+                <X size={16} />
+              </button>
+
+              <div style={{ overflowY: "auto", flex: 1, minHeight: 0, paddingRight: 10, marginRight: -10 }}>
+                {/* Header */}
+                <div style={{ display: "flex", alignItems: "center", gap: 16, borderBottom: `1px solid ${C.border}`, paddingBottom: 20, marginBottom: 20, paddingTop: 10 }}>
+                  <div style={{ width: 56, height: 56, borderRadius: 14, background: ICON_GRAD, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Building2 size={24} color="#fff" />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h2 style={{ fontSize: 20, fontWeight: 800, color: C.text, margin: 0 }}>{selectedDept.name}</h2>
+                    <p style={{ fontSize: 13, color: C.muted, margin: "6px 0 0", fontWeight: 600 }}>
+                      {deptPrograms.length} Program{deptPrograms.length !== 1 ? "s" : ""} • {deptTeachers.length} Teacher{deptTeachers.length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Programs Section */}
+                <p style={{ fontSize: 12, fontWeight: 800, color: C.accent, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Programs</p>
+                {deptPrograms.length > 0 ? deptPrograms.map(p => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(248,250,252,0.8)", padding: "14px 16px", borderRadius: 12, marginBottom: 8, border: `1px solid ${C.border}` }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(139,92,246,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <GraduationCap size={16} color="#8b5cf6" />
+                    </div>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: C.text, margin: 0 }}>{p.name}</p>
+                  </div>
+                )) : (
+                  <p style={{ fontSize: 13, color: C.muted, textAlign: "center", padding: "16px 0" }}>No programs in this department.</p>
+                )}
+
+                {/* Teachers Section */}
+                <p style={{ fontSize: 12, fontWeight: 800, color: C.accent, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12, marginTop: 20 }}>Teachers</p>
+                {deptTeachers.length > 0 ? deptTeachers.map(t => (
+                  <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(248,250,252,0.8)", padding: "14px 16px", borderRadius: 12, marginBottom: 8, border: `1px solid ${C.border}` }}>
+                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.secondary, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{t.name?.charAt(0) || "T"}</span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>{t.name}</p>
+                      <p style={{ fontSize: 12, color: C.muted, margin: "2px 0 0", display: "flex", alignItems: "center", gap: 4 }}>
+                        <Mail size={10} /> {t.email}
+                      </p>
+                    </div>
+                  </div>
+                )) : (
+                  <p style={{ fontSize: 13, color: C.muted, textAlign: "center", padding: "16px 0" }}>No teachers in this department.</p>
+                )}
+              </div>
+
+              <div style={{ paddingTop: 20, marginTop: 10, borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+                <button onClick={() => setSelectedDept(null)} style={{ width: "100%", padding: "12px 0", borderRadius: 12, background: C.secondary, color: "#fff", border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 }
 
-function DeptRow({ dept, onDelete }: { dept: Department; onDelete: () => void }) {
+function DeptRow({ dept, onClick, onDelete }: { dept: Department; onClick: () => void; onDelete: () => void }) {
   const [hov, setHov] = useState(false);
   return (
     <div
+      onClick={onClick}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
@@ -257,6 +341,7 @@ function DeptRow({ dept, onDelete }: { dept: Department; onDelete: () => void })
         background: hov ? "#fff" : "rgba(248,250,252,0.8)",
         transition: "all 0.2s ease",
         boxShadow: hov ? "0 6px 20px rgba(0,49,53,0.08)" : "none",
+        cursor: "pointer",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 0 }}>
@@ -276,7 +361,7 @@ function DeptRow({ dept, onDelete }: { dept: Department; onDelete: () => void })
         </div>
       </div>
       <button
-        onClick={onDelete}
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
         style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 9, border: "1px solid #fecdd3", background: hov ? "#fff1f2" : "transparent", color: "#e11d48", fontSize: 12, fontWeight: 600, cursor: "pointer", transition: EASE_ALL, flexShrink: 0, whiteSpace: "nowrap" }}
       >
         <Trash2 size={12} /> Delete

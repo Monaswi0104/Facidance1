@@ -97,6 +97,11 @@ export const programsApi = {
       body: JSON.stringify({ name, department_id }),
     }),
   delete: (id: string) => apiFetch(`/admin/programs/${id}`, { method: "DELETE" }),
+  updateDepartment: (id: string, department_id: string) =>
+    apiFetch<{ program: Program }>(`/admin/programs/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ department_id }),
+    }),
 };
 
 export interface Course {

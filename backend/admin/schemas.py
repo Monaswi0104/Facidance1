@@ -84,6 +84,10 @@ class ProgramResponse(BaseModel):
     department_name: Optional[str] = None
 
 
+class UpdateProgramRequest(BaseModel):
+    department_id: str
+
+
 # ---------------------------------------------------------------------------
 # Courses
 # ---------------------------------------------------------------------------

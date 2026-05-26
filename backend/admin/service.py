@@ -25,6 +25,7 @@ from backend.admin.schemas import (
     CreateProgramRequest,
     CreateTeacherRequest,
     UpdateStudentRequest,
+    UpdateProgramRequest,
 )
 
 
@@ -218,60 +219,20 @@ async def create_department(data: CreateDepartmentRequest) -> dict:
 
 async def delete_department(dept_id: str) -> dict:
     """
-    Cascade-delete a department and all related academic data (programs →
-    academic years → semesters → courses → attendance).
-    Raises if students or teachers are still assigned.
+    Delete a department. Prevents deletion if any programs or teachers are assigned.
     Mirrors DELETE /api/admin/departments/[id].
     """
     async with prisma.tx() as tx:
-        programs = await tx.program.find_many(
-            where={"departmentId": dept_id}, include={"academicYears": True}
-        )
-        program_ids = [p.id for p in programs]
-
-        academic_year_ids: list[str] = []
-        for p in programs:
-            academic_year_ids += [ay.id for ay in (p.academicYears or [])]
-
-        semester_ids: list[str] = []
-        if academic_year_ids:
-            semesters = await tx.semester.find_many(
-                where={"academicYearId": {"in": academic_year_ids}}
+        # Guard: programs still assigned
+        program_count = await tx.program.count(where={"departmentId": dept_id})
+        if program_count > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Cannot delete department: {program_count} program(s) are "
+                    "assigned. Reassign or delete them first."
+                ),
             )
-            semester_ids = [s.id for s in semesters]
-
-        course_ids: list[str] = []
-        if semester_ids:
-            courses = await tx.course.find_many(
-                where={"semesterId": {"in": semester_ids}}
-            )
-            course_ids = [c.id for c in courses]
-
-        if course_ids:
-            await tx.attendance.delete_many(where={"courseId": {"in": course_ids}})
-            await tx.course.delete_many(where={"id": {"in": course_ids}})
-
-        if semester_ids:
-            await tx.semester.delete_many(where={"id": {"in": semester_ids}})
-
-        if academic_year_ids:
-            await tx.academicyear.delete_many(where={"id": {"in": academic_year_ids}})
-
-        # Guard: students still enrolled
-        if program_ids:
-            student_count = await tx.student.count(
-                where={"programId": {"in": program_ids}}
-            )
-            if student_count > 0:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"Cannot delete department: {student_count} student(s) are "
-                        "enrolled in programs under this department. "
-                        "Reassign or remove students first."
-                    ),
-                )
-            await tx.program.delete_many(where={"id": {"in": program_ids}})
 
         # Guard: teachers still assigned
         teacher_count = await tx.teacher.count(where={"departmentId": dept_id})
@@ -329,6 +290,24 @@ async def create_program(data: CreateProgramRequest) -> dict:
 async def delete_program(program_id: str) -> dict:
     await prisma.program.delete(where={"id": program_id})
     return {"message": "Program deleted successfully"}
+
+
+async def update_program(program_id: str, data: UpdateProgramRequest) -> dict:
+    dept = await prisma.department.find_unique(where={"id": data.department_id})
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    
+    prog = await prisma.program.update(
+        where={"id": program_id},
+        data={"departmentId": data.department_id},
+        include={"department": True},
+    )
+    return {
+        "id": prog.id,
+        "name": prog.name,
+        "department_id": prog.departmentId,
+        "department_name": prog.department.name if prog.department else None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +482,9 @@ def _serialize_course(c) -> dict:
         "teacher_name": (
             c.teacher.user.name if (c.teacher and c.teacher.user) else None
         ),
+        "teacher_email": (
+            c.teacher.user.email if (c.teacher and c.teacher.user) else None
+        ),
         "semester_id": c.semesterId,
         "semester_name": c.semester.name if c.semester else None,
         "academic_year_name": (
@@ -516,6 +498,16 @@ def _serialize_course(c) -> dict:
                 c.semester
                 and c.semester.academicYear
                 and c.semester.academicYear.program
+            )
+            else None
+        ),
+        "department_name": (
+            c.semester.academicYear.program.department.name
+            if (
+                c.semester
+                and c.semester.academicYear
+                and c.semester.academicYear.program
+                and c.semester.academicYear.program.department
             )
             else None
         ),

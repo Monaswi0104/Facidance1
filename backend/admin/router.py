@@ -19,6 +19,7 @@ from backend.admin.schemas import (
     CreateTeacherRequest,
     UpdateCourseTeacherRequest,
     UpdateStudentRequest,
+    UpdateProgramRequest,
 )
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -107,6 +108,16 @@ async def create_program(body: CreateProgramRequest, _: AdminUser):
 @router.delete("/programs/{program_id}", summary="Delete a program")
 async def delete_program(program_id: Annotated[str, Path()], _: AdminUser):
     return await service.delete_program(program_id)
+
+
+@router.patch("/programs/{program_id}", summary="Reassign a program to a different department")
+async def update_program(
+    program_id: Annotated[str, Path()],
+    body: UpdateProgramRequest,
+    _: AdminUser,
+):
+    prog = await service.update_program(program_id, body)
+    return {"program": prog}
 
 
 # ---------------------------------------------------------------------------
