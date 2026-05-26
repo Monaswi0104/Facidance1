@@ -3,6 +3,7 @@
 /**
  * Unified Navbar — supports "teacher", "student", and "admin" roles.
  * All roles share the same teal brand color scheme.
+ * Student role includes AI Tips modal.
  */
 
 import Link from "next/link";
@@ -14,17 +15,17 @@ import {
   LayoutDashboard, BookOpen, CheckSquare,
   Users, BarChart3, LogOut, Menu, X,
   ClipboardList, User, GraduationCap, Building2,
-  BookMarked,
+  BookMarked, Sparkles, Loader2,
 } from "lucide-react";
 
-// ─── Design tokens ─────────────────────────────────────────────────────────────
-const SPRING      = "cubic-bezier(.22,.68,0,1.2)";
-const EASE        = `all 0.25s ${SPRING}`;
-const ICON_GRAD   = "linear-gradient(135deg, #003135 0%, #0FA4AF 100%)";
-const ACTIVE_GRAD = "linear-gradient(135deg, #003135 0%, #024950 50%, #0FA4AF 100%)";
+// ─── Design tokens ──────────────────────────────────────────────────────────────
+const SPRING        = "cubic-bezier(.22,.68,0,1.2)";
+const EASE          = `all 0.25s ${SPRING}`;
+const ICON_GRAD     = "linear-gradient(135deg, #003135 0%, #0FA4AF 100%)";
+const ACTIVE_GRAD   = "linear-gradient(135deg, #003135 0%, #024950 50%, #0FA4AF 100%)";
 const ACTIVE_SHADOW = "0 4px 18px rgba(15,164,175,0.32), inset 0 1px 0 rgba(255,255,255,0.12)";
 
-// ─── Nav route tables ──────────────────────────────────────────────────────────
+// ─── Nav route tables ───────────────────────────────────────────────────────────
 const TEACHER_NAV = [
   { href: "/teacher",            label: "Dashboard",  Icon: LayoutDashboard },
   { href: "/teacher/courses",    label: "My Courses", Icon: BookOpen        },
@@ -34,10 +35,10 @@ const TEACHER_NAV = [
 ];
 
 const STUDENT_NAV = [
-  { href: "/student",          label: "Dashboard",          Icon: LayoutDashboard },
-  { href: "/student/courses",  label: "My Courses",         Icon: BookOpen        },
-  { href: "/student/history",  label: "Attendance History", Icon: ClipboardList   },
-  { href: "/student/profile",  label: "Profile",            Icon: User            },
+  { href: "/student",         label: "Dashboard",          Icon: LayoutDashboard },
+  { href: "/student/courses", label: "My Courses",         Icon: BookOpen        },
+  { href: "/student/history", label: "Attendance History", Icon: ClipboardList   },
+  { href: "/student/profile", label: "Profile",            Icon: User            },
 ];
 
 const ADMIN_NAV = [
@@ -51,8 +52,9 @@ const ADMIN_NAV = [
 
 type NavItem = { href: string; label: string; Icon: React.ElementType };
 
-// ─── Teacher API ───────────────────────────────────────────────────────────────
+// ─── API helpers ────────────────────────────────────────────────────────────────
 const TEACHER_BASE = process.env.NEXT_PUBLIC_TEACHER_API_URL ?? "http://localhost:8002";
+const STUDENT_BASE = process.env.NEXT_PUBLIC_STUDENT_API_URL ?? "http://localhost:8003";
 
 function authHeaders() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
@@ -65,21 +67,21 @@ async function fetchTeacherMe() {
   return res.json() as Promise<{ id: string; name: string; department?: string }>;
 }
 
-// ─── Public props ──────────────────────────────────────────────────────────────
+// ─── Public props ───────────────────────────────────────────────────────────────
 interface NavbarProps {
   role: "teacher" | "student" | "admin";
   name?: string;
   department?: string;
 }
 
-// ─── Default export ────────────────────────────────────────────────────────────
+// ─── Default export ─────────────────────────────────────────────────────────────
 export default function Navbar({ role, name, department }: NavbarProps) {
   if (role === "teacher") return <TeacherNavbar nameProp={name} deptProp={department} />;
   if (role === "admin")   return <AdminNavbar nameProp={name} />;
   return <StudentNavbar nameProp={name} />;
 }
 
-// ─── Teacher branch ───────────────────────────────────────────────────────────
+// ─── Teacher branch ──────────────────────────────────────────────────────────────
 function TeacherNavbar({ nameProp, deptProp }: { nameProp?: string; deptProp?: string }) {
   const { data: me } = useQuery({
     queryKey: ["teacher-me"],
@@ -97,17 +99,19 @@ function TeacherNavbar({ nameProp, deptProp }: { nameProp?: string; deptProp?: s
   );
 }
 
-// ─── Admin branch ─────────────────────────────────────────────────────────────
+// ─── Admin branch ────────────────────────────────────────────────────────────────
 function AdminNavbar({ nameProp }: { nameProp?: string }) {
   const [adminName, setAdminName] = useState(nameProp ?? "Admin");
+
   useEffect(() => {
     if (nameProp) return;
     try {
-      const token = localStorage.getItem("token") ?? "";
+      const token   = localStorage.getItem("token") ?? "";
       const decoded = JSON.parse(atob(token.split(".")[1]));
       if (decoded.name) setAdminName(decoded.name);
     } catch { /* fallback to "Admin" */ }
   }, [nameProp]);
+
   return (
     <NavbarShell
       nav={ADMIN_NAV}
@@ -119,21 +123,275 @@ function AdminNavbar({ nameProp }: { nameProp?: string }) {
   );
 }
 
-// ─── Student branch ───────────────────────────────────────────────────────────
+// ─── Student branch (with AI Tips) ───────────────────────────────────────────────
 function StudentNavbar({ nameProp }: { nameProp?: string }) {
+  const [open,    setOpen]    = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [data,    setData]    = useState<any>(null);
+
+  async function fetchSuggestions() {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${STUDENT_BASE}/student/ai-suggestions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed");
+      const json = await res.json();
+      setData(json);
+      setOpen(true);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to load AI suggestions");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const s = data?.suggestions;
+
+  const severityColor =
+    s?.severity === "high"   ? "#dc2626" :
+    s?.severity === "medium" ? "#d97706" : "#0FA4AF";
+
+  const severityBg =
+    s?.severity === "high"   ? "#fef2f2" :
+    s?.severity === "medium" ? "#fffbeb" : "#ecfeff";
+
   return (
-    <NavbarShell
-      nav={STUDENT_NAV}
-      homeHref="/student"
-      role="student"
-      displayName={nameProp ?? "Student"}
-      subtitle="Student"
-    />
+    <>
+      <NavbarShell
+        nav={STUDENT_NAV}
+        homeHref="/student"
+        role="student"
+        displayName={nameProp ?? "Student"}
+        subtitle="Student"
+      >
+        {/* AI Tips button injected into the navbar right side */}
+        <button
+          onClick={fetchSuggestions}
+          style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "9px 14px", borderRadius: 12, border: "none",
+            cursor: "pointer",
+            background: ICON_GRAD,
+            color: "#fff", fontWeight: 700, fontSize: 13,
+            boxShadow: "0 4px 14px rgba(15,164,175,0.28)",
+            transition: EASE,
+          }}
+        >
+          {loading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+          AI Tips
+        </button>
+      </NavbarShell>
+
+      {/* ── AI Tips Modal ── */}
+      {open && data && s && (
+        <div
+          onClick={() => setOpen(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+            zIndex: 999, display: "flex", alignItems: "center",
+            justifyContent: "center", padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 650, background: "#fff",
+              borderRadius: 24, padding: 28,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+              maxHeight: "85vh", overflowY: "auto",
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+              <div style={{
+                width: 42, height: 42, borderRadius: 14,
+                background: ICON_GRAD,
+                display: "flex", alignItems: "center", justifyContent: "center", color: "#fff",
+              }}>
+                <Sparkles size={18} />
+              </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 22, color: "#0f172a" }}>AI Attendance Advisor</h2>
+                <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 14 }}>
+                  Personalized attendance improvement insights
+                </p>
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                style={{
+                  marginLeft: "auto", background: "none", border: "none",
+                  cursor: "pointer", color: "#94a3b8", fontSize: 20, lineHeight: 1,
+                }}
+              >✕</button>
+            </div>
+
+            {/* Attendance + Severity */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
+              <div style={{ flex: 1, padding: 16, borderRadius: 16, background: "#f8fafc" }}>
+                <p style={{ margin: 0, fontWeight: 700, color: "#0f172a", fontSize: 13 }}>
+                  Overall Attendance
+                </p>
+                <p style={{ margin: "6px 0 0", fontSize: 28, fontWeight: 800, color: "#0FA4AF" }}>
+                  {data.attendance_percentage}%
+                </p>
+              </div>
+              <div style={{
+                padding: "16px 20px", borderRadius: 16, background: severityBg,
+                display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center",
+              }}>
+                <p style={{
+                  margin: 0, fontSize: 11, fontWeight: 700, color: severityColor,
+                  textTransform: "uppercase", letterSpacing: "0.05em",
+                }}>
+                  Risk Level
+                </p>
+                <p style={{
+                  margin: "4px 0 0", fontSize: 18, fontWeight: 800,
+                  color: severityColor, textTransform: "capitalize",
+                }}>
+                  {s.severity}
+                </p>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div style={{ marginBottom: 20 }}>
+              <h3 style={{ margin: "0 0 8px", color: "#0f172a" }}>Summary</h3>
+              <p style={{ margin: 0, color: "#475569", lineHeight: 1.7 }}>{s.summary}</p>
+            </div>
+
+            {/* Urgent Courses */}
+            {s.urgent_courses?.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <h3 style={{ margin: "0 0 10px", color: "#0f172a" }}>⚠️ Needs Attention</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {s.urgent_courses.map((course: any) => (
+                    <div key={course.name} style={{
+                      padding: "14px 16px", borderRadius: 14,
+                      background: "#fff7ed", border: "1px solid rgba(234,88,12,0.2)",
+                    }}>
+                      <div style={{
+                        display: "flex", justifyContent: "space-between",
+                        alignItems: "center", marginBottom: 6,
+                      }}>
+                        <span style={{ fontWeight: 700, color: "#c2410c", fontSize: 14 }}>
+                          {course.name}
+                        </span>
+                        <span style={{
+                          padding: "3px 10px", borderRadius: 999,
+                          background: "#fed7aa", color: "#c2410c",
+                          fontWeight: 700, fontSize: 12,
+                        }}>
+                          {course.current_rate}%
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, color: "#92400e", fontSize: 13, lineHeight: 1.6 }}>
+                        {course.advice}
+                      </p>
+                      {course.sessions_needed > 0 && (
+                        <p style={{
+                          margin: "8px 0 0", color: "#c2410c",
+                          fontWeight: 700, fontSize: 13,
+                          display: "flex", alignItems: "center", gap: 6,
+                        }}>
+                          🎯 Must attend next {course.sessions_needed} consecutive sessions to reach 75%
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Safe Courses */}
+            {s.safe_courses?.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <h3 style={{ margin: "0 0 10px", color: "#0f172a" }}>✅ On Track</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {s.safe_courses.map((course: any) => (
+                    <div key={course.name} style={{
+                      padding: "14px 16px", borderRadius: 14,
+                      background: "#f0fdf4", border: "1px solid rgba(22,163,74,0.2)",
+                    }}>
+                      <div style={{
+                        display: "flex", justifyContent: "space-between",
+                        alignItems: "center", marginBottom: 6,
+                      }}>
+                        <span style={{ fontWeight: 700, color: "#15803d", fontSize: 14 }}>
+                          {course.name}
+                        </span>
+                        <span style={{
+                          padding: "3px 10px", borderRadius: 999,
+                          background: "#bbf7d0", color: "#15803d",
+                          fontWeight: 700, fontSize: 12,
+                        }}>
+                          {course.current_rate}%
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, color: "#166534", fontSize: 13, lineHeight: 1.6 }}>
+                        {course.advice}
+                      </p>
+                      {course.can_miss > 0 && (
+                        <p style={{ margin: "8px 0 0", color: "#15803d", fontWeight: 700, fontSize: 13 }}>
+                          🛡️ Can miss up to {course.can_miss} more sessions safely
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Suggestions */}
+            <div style={{ marginBottom: 20 }}>
+              <h3 style={{ margin: "0 0 12px", color: "#0f172a" }}>💡 Suggestions</h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {s.suggestions?.map((item: any, idx: number) => (
+                  <div key={idx} style={{
+                    border: "1px solid #e2e8f0", borderRadius: 14, padding: 16,
+                    display: "flex", gap: 12, alignItems: "flex-start",
+                  }}>
+                    <div style={{
+                      minWidth: 28, height: 28, borderRadius: 8,
+                      background: ICON_GRAD,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: "#fff", fontWeight: 800, fontSize: 12, flexShrink: 0,
+                    }}>
+                      {idx + 1}
+                    </div>
+                    <div>
+                      <p style={{ margin: 0, fontWeight: 700, color: "#0f172a" }}>{item.title}</p>
+                      <p style={{ margin: "6px 0 0", color: "#64748b", lineHeight: 1.6, fontSize: 13 }}>
+                        {item.detail}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Motivation */}
+            <div style={{
+              padding: 18, borderRadius: 16,
+              background: "linear-gradient(135deg, rgba(15,164,175,0.08) 0%, rgba(0,49,53,0.08) 100%)",
+            }}>
+              <p style={{ margin: 0, color: "#0f172a", fontWeight: 600, lineHeight: 1.7 }}>
+                ✨ {s.motivation}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
-// ─── Shared shell ─────────────────────────────────────────────────────────────
+// ─── Shared shell ────────────────────────────────────────────────────────────────
 interface ShellProps {
+  children?: React.ReactNode;
   nav: NavItem[];
   homeHref: string;
   role: "teacher" | "student" | "admin";
@@ -141,7 +399,7 @@ interface ShellProps {
   subtitle: string;
 }
 
-function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
+function NavbarShell({ nav, homeHref, displayName, subtitle, children }: ShellProps) {
   const pathname = usePathname();
   const router   = useRouter();
 
@@ -169,11 +427,11 @@ function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
     <>
       {/* ── Sticky header ── */}
       <header style={{
-         position: "sticky", top: 0, zIndex: 100, height: 70,
-  width: "100%", boxSizing: "border-box",   // ← add these two
-  display: "flex", alignItems: "center",
-  paddingLeft: "clamp(16px, 4vw, 40px)",
-  paddingRight: "clamp(16px, 4vw, 40px)",
+        position: "sticky", top: 0, zIndex: 100, height: 70,
+        width: "100%", boxSizing: "border-box",
+        display: "flex", alignItems: "center",
+        paddingLeft: "clamp(16px, 4vw, 40px)",
+        paddingRight: "clamp(16px, 4vw, 40px)",
         backdropFilter: "blur(20px) saturate(200%)",
         WebkitBackdropFilter: "blur(20px) saturate(200%)",
         background: scrolled ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.78)",
@@ -185,7 +443,7 @@ function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
         gap: 12,
       }}>
 
-        {/* Logo — image + wordmark only, no role badge */}
+        {/* Logo */}
         <Link href={homeHref} style={{
           display: "flex", alignItems: "center", gap: 6,
           textDecoration: "none", flexShrink: 0, transition: EASE,
@@ -231,7 +489,12 @@ function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
         </nav>
 
         {/* Right side */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginLeft: "auto" }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          flexShrink: 0, marginLeft: "auto",
+        }}>
+          {/* Slot for role-specific buttons (e.g. AI Tips for students) */}
+          {children}
 
           <div style={{ textAlign: "right", lineHeight: 1 }} className="profile-text">
             <p style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", letterSpacing: "-0.01em", margin: 0 }}>
@@ -240,7 +503,8 @@ function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
             <p style={{ fontSize: 11, color: "#94a3b8", margin: "3px 0 0" }}>{subtitle}</p>
           </div>
 
-          <div className="profile-divider" style={{ width: 1, height: 28, background: "#e2e8f0", flexShrink: 0 }} />
+          <div className="profile-divider"
+            style={{ width: 1, height: 28, background: "#e2e8f0", flexShrink: 0 }} />
 
           <button
             onClick={handleSignOut}
@@ -314,7 +578,9 @@ function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
               borderRadius: 12, border: "1px solid rgba(15,164,175,0.1)", marginBottom: 6,
             }}>
               <div>
-                <p style={{ fontSize: 13.5, fontWeight: 700, color: "#1e293b", margin: 0 }}>{displayName}</p>
+                <p style={{ fontSize: 13.5, fontWeight: 700, color: "#1e293b", margin: 0 }}>
+                  {displayName}
+                </p>
                 <p style={{ fontSize: 11.5, color: "#94a3b8", margin: "3px 0 0" }}>{subtitle}</p>
               </div>
               <button
@@ -352,7 +618,7 @@ function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
       )}
 
       <style>{`
-        @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideDown {
           from { opacity: 0; transform: translateY(-12px); }
           to   { opacity: 1; transform: translateY(0); }
@@ -364,8 +630,8 @@ function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
           transform: translateY(-2px) !important;
           box-shadow: 0 4px 12px rgba(0,49,53,0.08) !important;
         }
-        @media (min-width: 768px)  { .mobile-hamburger { display: none !important; } }
-        @media (max-width: 767px)  {
+        @media (min-width: 1024px) { .mobile-hamburger { display: none !important; } }
+        @media (max-width: 1023px) {
           .mobile-hamburger { display: flex !important; }
           .desktop-nav      { display: none !important; }
           .profile-text     { display: none !important; }
@@ -375,14 +641,6 @@ function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
         @media (max-width: 960px) and (min-width: 768px) {
           .logout-label { display: none !important; }
         }
-          @media (min-width: 1024px) { .mobile-hamburger { display: none !important; } }
-@media (max-width: 1023px) {
-  .mobile-hamburger { display: flex !important; }
-  .desktop-nav      { display: none !important; }
-  .profile-text     { display: none !important; }
-  .profile-divider  { display: none !important; }
-  .logout-btn       { display: none !important; }
-}
       `}</style>
     </>
   );

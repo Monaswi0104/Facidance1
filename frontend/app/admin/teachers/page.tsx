@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { UserPlus, Building2, Trash2, Mail, CheckCircle2, Loader2, Users } from "lucide-react";
+import { UserPlus, Building2, Trash2, Mail, CheckCircle2, Loader2, Users, ChevronDown } from "lucide-react";
 import { useTeachers, useDepartments } from "@/hooks/useAdmin";
 import { teachersApi } from "@/lib/api";
+import { useToast } from "@/lib/useToast";
+import { ToastContainer } from "@/components/ToastContainer";
 
 const SPRING   = "cubic-bezier(.22,.68,0,1.2)";
 const EASE_ALL = `all 0.25s ${SPRING}`;
@@ -47,13 +49,23 @@ export default function TeachersPage() {
   const { data: departments } = useDepartments();
   const [activeTeacherId, setActiveTeacherId] = useState<string | null>(null);
   const [activeDeptId, setActiveDeptId] = useState("");
+  const [filterDept, setFilterDept] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toasts, toast, removeToast } = useToast();
+
+  const filteredApproved = filterDept 
+    ? approved.filter(t => t.departmentId === filterDept)
+    : approved;
 
   async function handleApprove(teacherUserId: string) {
     if (!activeDeptId) return;
     setActionLoading(true); setError(null);
-    try { await teachersApi.approve(teacherUserId, activeDeptId); setActiveTeacherId(null); setActiveDeptId(""); refetch(); }
+    try { 
+      await teachersApi.approve(teacherUserId, activeDeptId); 
+      toast.success("Teacher Approved", "Successfully approved and assigned department.");
+      setActiveTeacherId(null); setActiveDeptId(""); refetch(); 
+    }
     catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed to approve teacher"); }
     finally { setActionLoading(false); }
   }
@@ -61,7 +73,11 @@ export default function TeachersPage() {
   async function handleDelete(userId: string) {
     if (!confirm("Delete this teacher? This cannot be undone.")) return;
     setActionLoading(true); setError(null);
-    try { await teachersApi.delete(userId); refetch(); }
+    try { 
+      await teachersApi.delete(userId); 
+      toast.success("Teacher Deleted", "Successfully removed teacher record.");
+      refetch(); 
+    }
     catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed to delete teacher"); }
     finally { setActionLoading(false); }
   }
@@ -189,7 +205,7 @@ export default function TeachersPage() {
 
         {/* Approved */}
         <Card>
-          <div style={{ padding: "22px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ padding: "22px 26px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ height: 36, width: 36, minWidth: 36, borderRadius: 10, background: ICON_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Building2 size={16} color="#fff" />
@@ -199,21 +215,56 @@ export default function TeachersPage() {
                 <p style={{ fontSize: 12, color: C.body, margin: "2px 0 0" }}>Assigned to departments</p>
               </div>
             </div>
-            <span style={{ fontSize: 12, padding: "4px 12px", borderRadius: 20, background: "rgba(15,164,175,0.08)", border: `1px solid ${C.borderHov}`, color: C.primary, fontWeight: 600, flexShrink: 0 }}>
-              {approved.length} active
-            </span>
+            
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              {/* Department Filter */}
+              <div style={{ position: "relative" }}>
+                <select 
+                  value={filterDept} 
+                  onChange={(e) => setFilterDept(e.target.value)}
+                  style={{
+                    width: 180,
+                    padding: "7px 32px 7px 14px", 
+                    borderRadius: 10, 
+                    border: `1px solid ${C.border}`, 
+                    background: "rgba(248,250,252,0.8)", 
+                    fontSize: 12.5, 
+                    fontWeight: 600,
+                    color: C.text, 
+                    outline: "none",
+                    cursor: "pointer",
+                    appearance: "none",
+                    WebkitAppearance: "none",
+                    transition: "all 0.2s ease"
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = C.borderHov)}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = C.border)}
+                >
+                  <option value="">All Departments</option>
+                  {(departments ?? []).map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} color={C.muted} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+              </div>
+
+              <span style={{ fontSize: 12, padding: "4px 12px", borderRadius: 20, background: "rgba(15,164,175,0.08)", border: `1px solid ${C.borderHov}`, color: C.primary, fontWeight: 600, flexShrink: 0 }}>
+                {filteredApproved.length} {filteredApproved.length === 1 ? 'active' : 'active'}
+              </span>
+            </div>
           </div>
           <div style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 10 }}>
             {teachersLoading ? (
               <><SkeletonCard /><SkeletonCard /><SkeletonCard /></>
-            ) : approved.length === 0 ? (
-              <EmptyState icon={Building2} message="No approved teachers yet." />
-            ) : approved.map((t) => (
+            ) : filteredApproved.length === 0 ? (
+              <EmptyState icon={Building2} message={filterDept ? "No approved teachers in this department." : "No approved teachers yet."} />
+            ) : filteredApproved.map((t) => (
               <ApprovedRow key={t.id} teacher={t} onDelete={() => handleDelete(t.userId)} actionLoading={actionLoading} />
             ))}
           </div>
         </Card>
       </div>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 }

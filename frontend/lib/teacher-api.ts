@@ -224,6 +224,13 @@ export const teacherCoursesApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ students }),
     }),
+
+  enrollExisting: (courseId: string, studentId: string) =>
+    apiFetch<{ success: boolean; message: string }>(`/teacher/courses/${courseId}/enroll-existing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id: studentId }),
+    }),
 };
 
 /** Students (teacher-scoped) */
@@ -231,6 +238,12 @@ export const teacherStudentsApi = {
   list: (courseId?: string) => {
     const qs = courseId ? `?course_id=${courseId}` : "";
     return apiFetch<TeacherStudent[]>(`/teacher/students${qs}`);
+  },
+
+  search: (query: string, courseId?: string) => {
+    const params = new URLSearchParams({ q: query });
+    if (courseId) params.set("course_id", courseId);
+    return apiFetch<{ students: any[] }>(`/teacher/students/search?${params}`);
   },
 };
 
@@ -323,6 +336,16 @@ export const teacherAttendanceApi = {
   getHistory: (courseId: string) =>
     apiFetch<AttendanceHistoryResponse>(
       `/teacher/attendance/history?course_id=${courseId}`
+    ),
+
+  markPresent: (courseId: string, studentId: string, date?: string) =>
+    apiFetch<{ success: boolean; message: string; attendance_id: string }>(
+      "/teacher/attendance/mark-present",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course_id: courseId, student_id: studentId, date }),
+      }
     ),
 };
 

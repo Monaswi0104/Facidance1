@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PlusCircle, X, BookOpen, Check, Building2, Users, Trash2, Loader2 } from "lucide-react";
+import { PlusCircle, X, BookOpen, Check, Building2, Users, Trash2, Loader2, ChevronDown } from "lucide-react";
 import { programsApi, departmentsApi, studentsApi, Program, Department } from "@/lib/api";
+import { useToast } from "@/lib/useToast";
+import { ToastContainer } from "@/components/ToastContainer";
 
 const SPRING   = "cubic-bezier(.22,.68,0,1.2)";
 const EASE_ALL = `all 0.25s ${SPRING}`;
@@ -71,7 +73,13 @@ export default function ProgramsPage() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [filterDept, setFilterDept] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const { toasts, toast, removeToast } = useToast();
+
+  const filteredPrograms = filterDept
+    ? programs.filter((p) => p.department_id === filterDept)
+    : programs;
 
   async function fetchAll() {
     const [pd, dd, sd] = await Promise.all([programsApi.list(), departmentsApi.list(), studentsApi.list()]);
@@ -81,7 +89,11 @@ export default function ProgramsPage() {
   async function addProgram() {
     if (!name.trim() || !departmentId.trim()) return;
     setLoading(true); setError(null);
-    try { await programsApi.create(name.trim(), departmentId.trim()); setName(""); setDepartmentId(""); setShowForm(false); await fetchAll(); }
+    try { 
+      await programsApi.create(name.trim(), departmentId.trim()); 
+      toast.success("Program Added", `Successfully added program: ${name.trim()}`);
+      setName(""); setDepartmentId(""); setShowForm(false); await fetchAll(); 
+    }
     catch (err) { setError(err instanceof Error ? err.message : "Failed to add program"); }
     finally { setLoading(false); }
   }
@@ -89,7 +101,11 @@ export default function ProgramsPage() {
   async function deleteProgram(id: string, programName: string) {
     if (!confirm(`Delete "${programName}"? This cannot be undone.`)) return;
     setError(null);
-    try { await programsApi.delete(id); await fetchAll(); }
+    try { 
+      await programsApi.delete(id); 
+      toast.success("Program Deleted", `Successfully deleted program: ${programName}`);
+      await fetchAll(); 
+    }
     catch (err) { setError(err instanceof Error ? err.message : "Failed to delete"); }
   }
 
@@ -188,36 +204,68 @@ export default function ProgramsPage() {
 
       {/* List */}
       <Card>
-        <div style={{ padding: "22px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ padding: "22px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ height: 36, width: 36, borderRadius: 10, background: ICON_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <BookOpen size={16} color="#fff" />
             </div>
             <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>All Programs</p>
           </div>
-          <span style={{ fontSize: 12, padding: "4px 12px", borderRadius: 20, background: "rgba(175,221,229,0.2)", border: `1px solid ${C.border}`, color: C.muted, fontWeight: 600 }}>
-            {programs.length} total
-          </span>
+          
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ position: "relative" }}>
+              <select 
+                value={filterDept} 
+                onChange={(e) => setFilterDept(e.target.value)}
+                style={{
+                  width: 180,
+                  padding: "7px 32px 7px 14px", 
+                  borderRadius: 10, 
+                  border: `1px solid ${C.border}`, 
+                  background: "rgba(248,250,252,0.8)", 
+                  fontSize: 12.5, 
+                  fontWeight: 600,
+                  color: C.text, 
+                  outline: "none",
+                  cursor: "pointer",
+                  appearance: "none",
+                  WebkitAppearance: "none",
+                  transition: "all 0.2s ease"
+                }}
+              >
+                <option value="">All Departments</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} color={C.muted} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+            </div>
+
+            <span style={{ fontSize: 12, padding: "4px 12px", borderRadius: 20, background: "rgba(175,221,229,0.2)", border: `1px solid ${C.border}`, color: C.muted, fontWeight: 600 }}>
+              {filteredPrograms.length} total
+            </span>
+          </div>
         </div>
         <div style={{ padding: "20px 26px 26px" }}>
           {initialLoading ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {[1, 2, 3].map((i) => <div key={i} style={{ height: 72, borderRadius: 12, background: "#f1f5f9", animation: "shimmer 1.6s ease-in-out infinite" }} />)}
             </div>
-          ) : programs.length === 0 ? (
+          ) : filteredPrograms.length === 0 ? (
             <div style={{ textAlign: "center", padding: "48px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
               <div style={{ height: 56, width: 56, borderRadius: 16, background: "rgba(175,221,229,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <BookOpen size={24} color={C.mutedLight} />
               </div>
-              <p style={{ fontSize: 14, color: C.body, margin: 0 }}>No programs found. Add your first one above.</p>
+              <p style={{ fontSize: 14, color: C.body, margin: 0 }}>{filterDept ? "No programs found in this department." : "No programs found. Add your first one above."}</p>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {programs.map((program) => <ProgramRow key={program.id} program={program} onDelete={() => deleteProgram(program.id, program.name)} />)}
+              {filteredPrograms.map((program) => <ProgramRow key={program.id} program={program} onDelete={() => deleteProgram(program.id, program.name)} />)}
             </div>
           )}
         </div>
       </Card>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 }

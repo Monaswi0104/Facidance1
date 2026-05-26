@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import {
   Search, Upload, X, AlertCircle, Users,
-  UserCheck, UserX, ChevronDown, Filter,
+  UserCheck, UserX, ChevronDown, Filter, UserPlus
 } from "lucide-react";
 import { useToast } from "@/lib/useToast";
 import { ToastContainer } from "@/components/ToastContainer";
-import { teacherStudentsApi, teacherCoursesApi } from "@/lib/teacher-api";
+import { teacherStudentsApi, teacherCoursesApi, teacherHierarchyApi } from "@/lib/teacher-api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface StudentCourseRef { id: string; name: string }
@@ -75,7 +75,7 @@ function StatCard({ title, value, Icon, color }: { title: string; value: number;
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>{title}</p>
           <p style={{ fontSize: 32, fontWeight: 800, color: color ?? C.text, letterSpacing: "-0.03em", lineHeight: 1, marginTop: 9 }}>{value}</p>
         </div>
@@ -192,6 +192,49 @@ export default function TeacherStudents() {
   const [selectedCourseFilter, setSelectedCourseFilter] = useState("");
   const { toasts, toast, removeToast } = useToast();
 
+  const [activeTab, setActiveTab] = useState<"import" | "enroll">("import");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [enrollCourseId, setEnrollCourseId] = useState("");
+  const [enrollingStudentId, setEnrollingStudentId] = useState<string | null>(null);
+
+  // Search effect for existing students
+  useEffect(() => {
+    if (activeTab !== "enroll") return;
+    const delayDebounceFn = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await teacherStudentsApi.search(searchQuery, enrollCourseId);
+        setSearchResults(res.students);
+      } catch (err: any) {
+        toast.error("Search failed", err.message);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, enrollCourseId, activeTab, toast]);
+
+  async function handleEnrollExisting(studentId: string) {
+    if (!enrollCourseId) {
+      toast.warning("Select Course", "Please select a course first.");
+      return;
+    }
+    setEnrollingStudentId(studentId);
+    try {
+      await teacherCoursesApi.enrollExisting(enrollCourseId, studentId);
+      toast.success("Enrolled", "Student successfully added to the course.");
+      setSearchResults(prev => prev.filter(s => s.id !== studentId));
+      fetchData();
+    } catch (err: any) {
+      toast.error("Enrollment failed", err.message);
+    } finally {
+      setEnrollingStudentId(null);
+    }
+  }
+
   const fetchData = useCallback(async () => {
   try {
     setLoading(true);
@@ -199,12 +242,18 @@ export default function TeacherStudents() {
     const token = localStorage.getItem("token");
     if (!token) { setError("Not authenticated."); router.push("/login"); return; }
 
-    const [studentsData, coursesData, programsRes] = await Promise.all([
+    const [studentsData, coursesData, hierarchyData] = await Promise.all([
       teacherStudentsApi.list(),
       teacherCoursesApi.list(),
-      fetch("/api/programs", { headers: { Authorization: `Bearer ${token}` } }),
+      teacherHierarchyApi.get(),
     ]);
-    const programsData = programsRes.ok ? await programsRes.json() : [];
+    const programsData = hierarchyData.departments.flatMap(d => 
+      d.programs.map(p => ({
+        id: p.id,
+        name: p.name,
+        department: { name: d.name }
+      }))
+    );
 
     setStudents(studentsData.map((s) => ({
       id: s.id,
@@ -283,28 +332,28 @@ const firstSheet = workbook.Sheets[sheetName];
         const row = jsonData[i];
         if (!row || row.length === 0) continue;
         const [name, dob, email] = row;
-        if (!name || !dob) continue;
+        if (!name) continue;
         const studentEmail = email || `${String(name).toLowerCase().replace(/\s+/g, ".")}@student.com`;
 
-        let parsedDob: string;
-        if (typeof dob === "number") {
-          const epoch = new Date(1899, 11, 30);
-          epoch.setDate(epoch.getDate() + Math.floor(dob));
-          parsedDob = epoch.toISOString().split("T")[0];
-        } else {
-          const parts = String(dob).trim().replace(/\//g, "-").split("-");
-          if (parts.length !== 3) continue;
-         const [day, month, yearRaw] = parts;
-
-let year = yearRaw;
-
-if (year.length === 2) {
-  year = String(
-    Math.floor(new Date().getFullYear() / 100) * 100 + parseInt(year)
-  );
-}
-
-parsedDob = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+        let parsedDob = "";
+        if (dob) {
+          if (typeof dob === "number") {
+            const epoch = new Date(Date.UTC(1899, 11, 30));
+            epoch.setUTCDate(epoch.getUTCDate() + Math.floor(dob));
+            parsedDob = epoch.toISOString().split("T")[0];
+          } else {
+            const parts = String(dob).trim().replace(/\//g, "-").split("-");
+            if (parts.length === 3) {
+              const [day, month, yearRaw] = parts;
+              let year = yearRaw;
+              if (year.length === 2) {
+                year = String(
+                  Math.floor(new Date().getFullYear() / 100) * 100 + parseInt(year)
+                );
+              }
+              parsedDob = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+            }
+          }
         }
         studentsToImport.push({ name: String(name).trim(), email: studentEmail.toLowerCase().trim(), dob: parsedDob, program_id: programId });
       }
@@ -312,7 +361,11 @@ parsedDob = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
       if (studentsToImport.length === 0) { toast.warning("No data", "No valid student records found."); return; }
 
       const result = await teacherCoursesApi.importStudents(courseId, studentsToImport);
-      toast.success("Import successful!", `Added: ${result.successful.length}, Existing: ${result.existing.length}, Failed: ${result.failed.length}`);
+      if (result.failed.length > 0) {
+        toast.error("Import had issues", `Added: ${result.successful.length}, Failed: ${result.failed.length}. Reasons: ${result.failed.map((f: any) => f.reason).join(', ')}`);
+      } else {
+        toast.success("Import successful!", `Added: ${result.successful.length}, Existing: ${result.existing.length}`);
+      }
       await fetchData();
       if (formRef.current) formRef.current.reset();
     } catch (err: any) {
@@ -392,76 +445,142 @@ parsedDob = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
           <StatCard title="Not Registered"   value={unregisteredCount} Icon={UserX}      color={unregisteredCount > 0 ? "#dc2626" : C.text} />
         </div>
 
-        {/* Import card */}
+        {/* Import & Enroll Card */}
         <Card>
-          <div style={{ padding: "22px 28px 0" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
-              <div style={{
-                height: 44, width: 44, borderRadius: 13, background: ICON_GRAD,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 6px 18px rgba(15,164,175,0.28)",
-              }}>
-                <Upload size={19} color="#fff" />
-              </div>
-              <div>
-                <p style={{ fontSize: 15, fontWeight: 700, color: C.text, letterSpacing: "-0.02em" }}>Import Students</p>
-                <p style={{ fontSize: 12, color: C.body, marginTop: 2 }}>
-                  Upload an Excel file to create accounts and enroll students into a course.
-                </p>
-              </div>
-            </div>
+          <div style={{ display: "flex", borderBottom: `1px solid ${C.border}` }}>
+            <button
+              type="button"
+              onClick={() => setActiveTab("import")}
+              style={{
+                flex: 1, padding: "16px 0", background: activeTab === "import" ? "#fff" : "#f8fafc",
+                border: "none", borderBottom: activeTab === "import" ? `2px solid ${C.accent}` : "2px solid transparent",
+                fontSize: 14, fontWeight: 700, color: activeTab === "import" ? C.accent : C.muted,
+                cursor: "pointer", transition: EASE_ALL
+              }}
+            >
+              Import New Students (Excel)
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("enroll")}
+              style={{
+                flex: 1, padding: "16px 0", background: activeTab === "enroll" ? "#fff" : "#f8fafc",
+                border: "none", borderBottom: activeTab === "enroll" ? `2px solid ${C.accent}` : "2px solid transparent",
+                fontSize: 14, fontWeight: 700, color: activeTab === "enroll" ? C.accent : C.muted,
+                cursor: "pointer", transition: EASE_ALL
+              }}
+            >
+              Enroll Existing Students
+            </button>
           </div>
 
-          <form ref={formRef} onSubmit={handleImport} style={{ padding: "0 28px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
-            {/* File input */}
-            <div>
-              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-                Excel File (.xlsx) — Columns: Name, DOB (dd/mm/yyyy), Email (optional)
-              </label>
-              <input
-                type="file" name="file" accept=".xlsx,.xls" required disabled={importing}
-                style={{
-                  display: "block", width: "100%",
-                  padding: "9px 12px", borderRadius: 11, fontSize: 12.5,
-                  border: `1px solid ${C.border}`, background: "#f8fafc", color: C.body,
-                  cursor: "pointer",
-                }}
-              />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }} className="import-grid">
-              {/* Program */}
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-                  Program <span style={{ color: "#ef4444" }}>*</span>
-                </label>
-                <div style={{ position: "relative" }}>
-                  <select
-                    name="programId" required disabled={importing}
-                    style={{
-                      width: "100%", padding: "10px 36px 10px 14px",
-                      borderRadius: 11, fontSize: 13, color: C.text,
-                      background: C.white, border: `1px solid ${C.border}`,
-                      outline: "none", appearance: "none", cursor: "pointer",
-                    }}
-                  >
-                    <option value="">Select program…</option>
-                    {programs.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.department.name})</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={13} color={C.mutedLight} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+          {activeTab === "import" ? (
+            <>
+              <div style={{ padding: "22px 28px 0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+                  <div style={{
+                    height: 44, width: 44, borderRadius: 13, background: ICON_GRAD,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    boxShadow: "0 6px 18px rgba(15,164,175,0.28)",
+                  }}>
+                    <Upload size={19} color="#fff" />
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: C.text, letterSpacing: "-0.02em" }}>Import New Students</p>
+                    <p style={{ fontSize: 12, color: C.body, marginTop: 2 }}>
+                      Upload an Excel file to create accounts and enroll students into a course.
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              {/* Course */}
+              <form ref={formRef} onSubmit={handleImport} style={{ padding: "0 28px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
+                {/* File input */}
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                    Excel File (.xlsx) — Columns: Name, DOB (dd/mm/yyyy), Email (optional)
+                  </label>
+                  <input
+                    type="file" name="file" accept=".xlsx,.xls" required disabled={importing}
+                    style={{
+                      display: "block", width: "100%",
+                      padding: "9px 12px", borderRadius: 11, fontSize: 12.5,
+                      border: `1px solid ${C.border}`, background: "#f8fafc", color: C.body,
+                      cursor: "pointer",
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }} className="import-grid">
+                  {/* Program */}
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                      Program <span style={{ color: "#ef4444" }}>*</span>
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <select
+                        name="programId" required disabled={importing}
+                        style={{
+                          width: "100%", padding: "10px 36px 10px 14px",
+                          borderRadius: 11, fontSize: 13, color: C.text,
+                          background: C.white, border: `1px solid ${C.border}`,
+                          outline: "none", appearance: "none", cursor: "pointer",
+                        }}
+                      >
+                        <option value="">Select program…</option>
+                        {programs.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name} ({p.department.name})</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={13} color={C.mutedLight} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+                    </div>
+                  </div>
+
+                  {/* Course */}
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                      Course <span style={{ color: "#ef4444" }}>*</span>
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <select
+                        name="courseId" required disabled={importing}
+                        style={{
+                          width: "100%", padding: "10px 36px 10px 14px",
+                          borderRadius: 11, fontSize: 13, color: C.text,
+                          background: C.white, border: `1px solid ${C.border}`,
+                          outline: "none", appearance: "none", cursor: "pointer",
+                        }}
+                      >
+                        <option value="">Select course…</option>
+                        {courses.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={13} color={C.mutedLight} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, paddingTop: 4 }}>
+                  <p style={{ fontSize: 12, color: C.body }}>
+                    Newly imported students will receive login credentials via email.
+                  </p>
+                  <PrimaryBtn type="submit" disabled={importing}>
+                    <Upload size={14} />
+                    {importing ? "Importing…" : "Import Students"}
+                  </PrimaryBtn>
+                </div>
+              </form>
+            </>
+          ) : (
+            <div style={{ padding: "28px", display: "flex", flexDirection: "column", gap: 20 }}>
               <div>
                 <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-                  Course <span style={{ color: "#ef4444" }}>*</span>
+                  1. Select Target Course <span style={{ color: "#ef4444" }}>*</span>
                 </label>
-                <div style={{ position: "relative" }}>
+                <div style={{ position: "relative", maxWidth: 400 }}>
                   <select
-                    name="courseId" required disabled={importing}
+                    value={enrollCourseId} onChange={(e) => setEnrollCourseId(e.target.value)}
                     style={{
                       width: "100%", padding: "10px 36px 10px 14px",
                       borderRadius: 11, fontSize: 13, color: C.text,
@@ -477,18 +596,68 @@ parsedDob = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
                   <ChevronDown size={13} color={C.mutedLight} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
                 </div>
               </div>
-            </div>
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, paddingTop: 4 }}>
-              <p style={{ fontSize: 12, color: C.body }}>
-                Newly imported students will receive login credentials via email.
-              </p>
-              <PrimaryBtn type="submit" disabled={importing}>
-                <Upload size={14} />
-                {importing ? "Importing…" : "Import Students"}
-              </PrimaryBtn>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                    2. Search Existing Students
+                  </label>
+                  <div style={{ position: "relative" }}>
+                    <SearchInput
+                      value={searchQuery}
+                      onChange={setSearchQuery}
+                      placeholder="Search registered students by name or email..."
+                    />
+                    {isSearching && (
+                      <div style={{
+                        position: "absolute", right: 14, top: "50%", marginTop: -8,
+                        width: 16, height: 16, borderRadius: "50%",
+                        border: "2px solid rgba(15,164,175,0.15)", borderTopColor: C.accent,
+                        animation: "spin 0.6s linear infinite",
+                      }} />
+                    )}
+                  </div>
+                  
+                  {searchResults.length > 0 && (
+                    <div style={{ marginTop: 16, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+                      {searchResults.map((s, idx) => (
+                        <div key={s.id} style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "12px 16px", background: idx % 2 === 0 ? "#fff" : "#f8fafc",
+                          borderBottom: idx === searchResults.length - 1 ? "none" : `1px solid ${C.border}`,
+                        }}>
+                          <div>
+                            <p style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>{s.name}</p>
+                            <p style={{ fontSize: 11.5, color: C.body, marginTop: 2 }}>{s.email} • {s.program?.name || "No Program"} ({s.program?.department?.name || "No Dept"})</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleEnrollExisting(s.id)}
+                            disabled={enrollingStudentId === s.id}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 6,
+                              padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              cursor: enrollingStudentId === s.id ? "not-allowed" : "pointer",
+                              border: `1px solid ${C.accent}`,
+                              background: enrollingStudentId === s.id ? "#e2e8f0" : "rgba(15,164,175,0.08)",
+                              color: enrollingStudentId === s.id ? C.muted : C.accent,
+                              transition: EASE_ALL,
+                            }}
+                          >
+                            {enrollingStudentId === s.id ? <div style={{width: 12, height: 12, border: "2px solid transparent", borderTopColor: C.accent, borderRadius: "50%", animation: "spin 0.6s linear infinite"}}/> : <UserPlus size={14} />}
+                            {enrollingStudentId === s.id ? "Adding..." : "Enroll"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {searchResults.length === 0 && !isSearching && (
+                    <p style={{ fontSize: 13, color: C.muted, marginTop: 12, textAlign: "center", padding: "20px 0" }}>
+                      {searchQuery ? `No un-enrolled students found matching "${searchQuery}"` : "No un-enrolled students available to add."}
+                    </p>
+                  )}
+                </div>
             </div>
-          </form>
+          )}
         </Card>
 
         {/* Filters */}
@@ -580,7 +749,7 @@ parsedDob = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 900px)  { .stat-grid { grid-template-columns: repeat(2, 1fr) !important; } }
-        @media (max-width: 540px)  { .stat-grid { grid-template-columns: 1fr !important; } .import-grid { grid-template-columns: 1fr !important; } }
+        @media (max-width: 540px)  { .stat-grid { grid-template-columns: repeat(2, 1fr) !important; } .import-grid { grid-template-columns: 1fr !important; } }
       `}</style>
     </>
   );

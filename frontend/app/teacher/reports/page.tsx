@@ -88,7 +88,7 @@ function StatCard({ title, value, Icon, color, sub }: {
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>
             {title}
           </p>
@@ -302,10 +302,24 @@ export default function TeacherReports() {
     { name: "< 50%", value: below50 },
   ].filter((d) => d.value > 0);
 
-  const barData = report.map((r) => ({
-    name: r.studentName.split(" ")[0] ?? r.studentName.slice(0, 10),
-    pct: Number(r.percentage.toFixed(1)),
-  }));
+  // Detect duplicate first names for chart labels
+  const firstNameCount: Record<string, number> = {};
+  report.forEach((r) => {
+    const cleanName = r.studentName.replace(" (Graduated)", "");
+    const first = cleanName.split(" ")[0] ?? cleanName;
+    firstNameCount[first] = (firstNameCount[first] || 0) + 1;
+  });
+
+  const barData = report.map((r) => {
+    const cleanName = r.studentName.replace(" (Graduated)", "");
+    const parts = cleanName.split(" ");
+    const first = parts[0] ?? cleanName;
+    // If duplicate first name, append last name initial
+    const label = firstNameCount[first] > 1 && parts.length > 1
+      ? `${first} ${parts[parts.length - 1][0]}.`
+      : first;
+    return { name: label, pct: Number(r.percentage.toFixed(1)) };
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
@@ -408,10 +422,10 @@ export default function TeacherReports() {
           <Card>
             <CardHead title="Attendance by Student" sub="Individual percentage breakdown" />
             <div style={{ padding: "16px 8px 24px" }}>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={barData} barCategoryGap="38%">
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={barData} barCategoryGap="38%" margin={{ bottom: 60 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#94a3b8", fontWeight: 500 }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#94a3b8", fontWeight: 500 }} axisLine={false} tickLine={false} interval={0} angle={-35} textAnchor="end" height={70} />
                   <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} unit="%" domain={[0, 100]} />
                   <Tooltip
                     contentStyle={{ background: "rgba(255,255,255,0.98)", border: "1px solid rgba(15,164,175,0.15)", borderRadius: 12, fontSize: 12, boxShadow: SHADOW.hover }}

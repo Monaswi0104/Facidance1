@@ -214,10 +214,48 @@ export async function uploadPhotos(studentId: string, photos: { front?: File; le
   if (photos.left) formData.append("left", photos.left);
   if (photos.right) formData.append("right", photos.right);
 
-  const res = await fetch("/api/student/upload-photos", {
+  const res = await fetch("http://localhost:8004/api/process-student", {
     method: "POST",
-    headers: { Authorization: `Bearer ${getToken()}` }, // no Content-Type — browser sets multipart boundary
     body: formData,
   });
-  return handleResponse(res);
+  
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body?.detail ?? body?.error ?? detail;
+    } catch {}
+    throw new Error(detail);
+  }
+
+  const processData = await res.json();
+  
+  // Check if any faces failed to be detected
+  const failures = [];
+  if (processData.results) {
+    for (const [pose, result] of Object.entries(processData.results)) {
+      if (!(result as any).success) {
+        failures.push(`${pose}: ${(result as any).error}`);
+      }
+    }
+  }
+  
+  if (failures.length > 0) {
+    throw new Error(`Face detection failed - ${failures.join(", ")}`);
+  }
+
+  const trainRes = await fetch("http://localhost:8004/api/train", {
+    method: "POST",
+  });
+
+  if (!trainRes.ok) {
+    let detail = `Train HTTP ${trainRes.status}`;
+    try {
+      const body = await trainRes.json();
+      detail = body?.detail ?? body?.error ?? detail;
+    } catch {}
+    throw new Error(detail);
+  }
+
+  return { message: "Photos uploaded and face model updated successfully!", studentId };
 }

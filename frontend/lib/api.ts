@@ -18,7 +18,17 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body?.detail ?? body?.error ?? `HTTP ${res.status}`);
+    let errMsg = body?.error;
+    if (!errMsg && body?.detail) {
+      if (typeof body.detail === "string") {
+        errMsg = body.detail;
+      } else if (Array.isArray(body.detail) && body.detail.length > 0) {
+        errMsg = body.detail.map((err: any) => err.msg || JSON.stringify(err)).join(", ");
+      } else {
+        errMsg = JSON.stringify(body.detail);
+      }
+    }
+    throw new Error(errMsg ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
@@ -94,7 +104,7 @@ export interface Course {
   name: string;
   code: string;
   entry_code: string;
-  teacher_id: string;
+  teacher_id: string | null;
   teacher_name: string | null;
   semester_id: string;
   semester_name: string | null;
@@ -110,6 +120,11 @@ export const coursesApi = {
     academic_year: string;
     semester_number: number;
   }) => apiFetch<{ course: Course }>("/admin/courses", { method: "POST", body: JSON.stringify(data) }),
+  updateTeacher: (courseId: string, teacherId: string) =>
+    apiFetch<{ course: Course }>(`/admin/courses/${courseId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ teacher_id: teacherId }),
+    }),
   delete: (id: string) => apiFetch(`/admin/courses/${id}`, { method: "DELETE" }),
 };
 
@@ -142,6 +157,8 @@ export const studentsApi = {
   delete: (userId: string) => apiFetch(`/admin/students/${userId}`, { method: "DELETE" }),
   graduate: (userId: string) =>
     apiFetch(`/admin/students/${userId}/graduate`, { method: "POST" }),
+  ungraduate: (userId: string) =>
+    apiFetch(`/admin/students/${userId}/ungraduate`, { method: "POST" }),
 };
 
 export interface AnalyticsOverview {
