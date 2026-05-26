@@ -9,7 +9,7 @@ Mirrors the logic in the Next.js teacher API routes.
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import secrets
@@ -24,10 +24,23 @@ from backend.teacher.schemas import (
     ImportStudentsRequest,
     SubmitAttendanceRequest,
     SendCredentialsRequest,
+    RemoveStudentRequest,
 )
 import httpx
 
 PYTHON_API_URL = os.environ.get("PYTHON_API_URL", "http://localhost:8004")
+
+# IST timezone (UTC+5:30) — used for date boundary calculations
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def _to_ist(dt: datetime) -> datetime:
+    """
+    Convert a naive (assumed-UTC) or aware datetime to IST,
+    then strip tzinfo so it can be stored in the naive-timestamp DB column.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST).replace(tzinfo=None)
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +305,7 @@ async def get_courses(user_id: str) -> list[dict]:
         attendance_rows = await prisma.attendance.find_many(
             where={"courseId": course.id},
         )
-        unique_sessions = len({str(r.timestamp)[:10] for r in attendance_rows})
+        unique_sessions = len({str(_to_ist(r.timestamp))[:10] for r in attendance_rows})
 
         sem = course.semester
         ay = sem.academicYear
@@ -530,11 +543,12 @@ async def _do_submit_attendance(
 ) -> dict:
     # FIX: Attendance.timestamp is TIMESTAMP WITHOUT TIME ZONE in Postgres.
     # asyncpg rejects timezone-aware datetimes against naive DB columns, so we
-    # always strip tzinfo and work in naive UTC throughout this function.
+    # always strip tzinfo and work in naive IST throughout this function.
+    # Convert to IST so that the date boundaries match the user's local day.
     if date_str:
-        attendance_date = _parse_dt(date_str).replace(tzinfo=None)
+        attendance_date = _to_ist(_parse_dt(date_str))
     else:
-        attendance_date = datetime.utcnow()
+        attendance_date = _to_ist(datetime.utcnow())
 
     start_of_day = datetime(
         attendance_date.year, attendance_date.month, attendance_date.day,
@@ -617,7 +631,7 @@ async def get_attendance_history(course_id: str) -> dict:
 
     grouped: dict[str, list] = {}
     for r in records:
-        date_key = str(r.timestamp)[:10]
+        date_key = str(_to_ist(r.timestamp))[:10]
         grouped.setdefault(date_key, []).append(
             {
                 "studentId": r.studentId,
@@ -642,9 +656,9 @@ async def mark_present(course_id: str, student_id: str, date_str: Optional[str])
     If none exists, create one with status=True.
     """
     if date_str:
-        attendance_date = _parse_dt(date_str).replace(tzinfo=None)
+        attendance_date = _to_ist(_parse_dt(date_str))
     else:
-        attendance_date = datetime.utcnow()
+        attendance_date = _to_ist(datetime.utcnow())
 
     start_of_day = datetime(
         attendance_date.year, attendance_date.month, attendance_date.day,
@@ -1071,7 +1085,7 @@ async def get_report(
         return report
 
     # Unique sessions = distinct dates (YYYY-MM-DD)
-    total_sessions = len({str(r.timestamp)[:10] for r in records})
+    total_sessions = len({str(_to_ist(r.timestamp))[:10] for r in records})
 
     # Map: student_id → attended dates
     student_stats: dict[str, dict] = {}
@@ -1088,7 +1102,7 @@ async def get_report(
 
     for r in records:
         if r.status and r.studentId in student_stats:
-            student_stats[r.studentId]["attendedSessions"].add(str(r.timestamp)[:10])
+            student_stats[r.studentId]["attendedSessions"].add(str(_to_ist(r.timestamp))[:10])
 
     report = []
     for stats in student_stats.values():
@@ -1317,3 +1331,42 @@ async def enroll_existing_student(course_id: str, user_id: str, student_id: str)
     )
 
     return {"success": True, "message": "Student successfully enrolled"}
+
+
+async def remove_student_from_course(user_id: str, course_id: str, data: RemoveStudentRequest) -> dict:
+    """
+    Remove (disenroll) a student from a course.
+    """
+    student_id = data.student_id
+    teacher = await prisma.teacher.find_unique(where={"userId": user_id})
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    course = await prisma.course.find_first(
+        where={"id": course_id, "teacherId": teacher.id}
+    )
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found or access denied")
+
+    from backend.common.prisma_client import db
+
+    # Check if student exists
+    student_exists = await db.fetchval('SELECT id FROM "Student" WHERE id = $1', student_id)
+    if not student_exists:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Check if enrolled
+    enrolment_exists = await db.fetchval(
+        'SELECT 1 FROM "_CourseStudents" WHERE "A" = $1 AND "B" = $2',
+        course_id, student_id
+    )
+    if not enrolment_exists:
+        raise HTTPException(status_code=400, detail="Student not enrolled in this course")
+
+    # Delete enrollment
+    await prisma.query_raw(
+        'DELETE FROM "_CourseStudents" WHERE "A" = $1 AND "B" = $2',
+        course_id, student_id
+    )
+
+    return {"success": True, "message": "Student successfully removed from the course"}
