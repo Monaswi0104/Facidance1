@@ -156,46 +156,24 @@ async def create_teacher(data: CreateTeacherRequest) -> dict:
 async def delete_teacher(user_id: str) -> dict:
     """
     Delete Teacher record (if exists) then User record.
-    Cascades through: enrollments → attendance → courses → teacher → user.
-    Mirrors DELETE /api/admin/teachers and DELETE /api/admin/teachers/[id].
+    Courses owned by this teacher are preserved with teacherId set to NULL
+    so they can be reassigned to another teacher.
     """
     from backend.common.prisma_client import db
 
     teacher = await prisma.teacher.find_first(where={"userId": user_id})
 
     if teacher:
-        # Get all courses owned by this teacher
-        courses = await db.fetch(
-            'SELECT id FROM "Course" WHERE "teacherId" = $1', teacher.id
+        # Unlink courses from this teacher (set teacherId to NULL)
+        await db.execute(
+            'UPDATE "Course" SET "teacherId" = NULL WHERE "teacherId" = $1',
+            teacher.id,
         )
-        course_ids = [c["id"] for c in courses]
 
-        if course_ids:
-            # Build placeholder list for IN clause
-            phs = ", ".join(f"${i+1}" for i in range(len(course_ids)))
-
-            # 1. Remove student enrollments for these courses
-            await db.execute(
-                f'DELETE FROM "_CourseStudents" WHERE "A" IN ({phs})',
-                *course_ids,
-            )
-
-            # 2. Remove attendance records for these courses
-            await db.execute(
-                f'DELETE FROM "Attendance" WHERE "courseId" IN ({phs})',
-                *course_ids,
-            )
-
-            # 3. Delete the courses themselves
-            await db.execute(
-                f'DELETE FROM "Course" WHERE id IN ({phs})',
-                *course_ids,
-            )
-
-        # 4. Delete the Teacher record
+        # Delete the Teacher record
         await prisma.teacher.delete_many(where={"userId": user_id})
 
-    # 5. Delete the User record
+    # Delete the User record
     await prisma.user.delete(where={"id": user_id})
     return {"message": "Teacher deleted successfully"}
 
@@ -480,6 +458,41 @@ async def delete_course(course_id: str) -> dict:
     return {"message": "Course deleted successfully"}
 
 
+async def update_course_teacher(course_id: str, teacher_id: str) -> dict:
+    """
+    Reassign a course to a different teacher.
+    Verifies the course and teacher both exist before updating.
+    """
+    course = await prisma.course.find_unique(where={"id": course_id})
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    teacher = await prisma.teacher.find_unique(
+        where={"id": teacher_id},
+        include={"user": True},
+    )
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    updated = await prisma.course.update(
+        where={"id": course_id},
+        data={"teacherId": teacher_id},
+        include={
+            "teacher": {"include": {"user": True}},
+            "semester": {
+                "include": {
+                    "academicYear": {
+                        "include": {
+                            "program": {"include": {"department": True}}
+                        }
+                    }
+                }
+            },
+        },
+    )
+    return _serialize_course(updated)
+
+
 def _serialize_course(c) -> dict:
     return {
         "id": c.id,
@@ -583,7 +596,7 @@ async def get_students() -> dict:
                     else None
                 ),
                 "status": s.status if s else "unknown",
-                "joinedAt": s.joinedAt.isoformat() if s else None,
+                "joined_at": s.joinedAt.isoformat() if s else None,
                 "graduated": graduated,
                 "courses_count": len(s.courses) if (s and s.courses) else 0,
                 "courses": [

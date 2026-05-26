@@ -288,16 +288,18 @@ async def get_courses(user_id: str) -> list[dict]:
 
     result = []
     for course in courses:
-        # Real session count = distinct timestamps in attendance for this course
+        # Real session count = distinct dates (YYYY-MM-DD)
         attendance_rows = await prisma.attendance.find_many(
             where={"courseId": course.id},
         )
-        unique_sessions = len({str(r.timestamp) for r in attendance_rows})
+        unique_sessions = len({str(r.timestamp)[:10] for r in attendance_rows})
 
         sem = course.semester
         ay = sem.academicYear
         prog = ay.program
         dept = prog.department if prog else None
+        
+        active_students = [s for s in (course.students or []) if getattr(s, "status", None) != "graduated"]
 
         result.append(
             {
@@ -309,7 +311,7 @@ async def get_courses(user_id: str) -> list[dict]:
                 "semester": sem.name if sem else None,
                 "program": prog.name if prog else None,
                 "department": dept.name if dept else None,
-                "student_count": len(course.students or []),
+                "student_count": len(active_students),
                 "session_count": unique_sessions,
             }
         )
@@ -744,7 +746,7 @@ async def get_course_students(user_id: str, course_id: str) -> dict:
         for s in students:
 
             attendance_count = await prisma.attendance.count(
-                where={"studentId": s.id, "courseId": course_id}
+                where={"studentId": s.id, "courseId": course_id, "status": True}
             )
 
             try:
@@ -1068,10 +1070,10 @@ async def get_report(
         report.sort(key=lambda x: x["studentName"])
         return report
 
-    # Unique sessions = distinct timestamp strings
-    total_sessions = len({str(r.timestamp) for r in records})
+    # Unique sessions = distinct dates (YYYY-MM-DD)
+    total_sessions = len({str(r.timestamp)[:10] for r in records})
 
-    # Map: student_id → attended timestamps
+    # Map: student_id → attended dates
     student_stats: dict[str, dict] = {}
     for s in (course.students or []):
         name_display = s.user.name
@@ -1086,7 +1088,7 @@ async def get_report(
 
     for r in records:
         if r.status and r.studentId in student_stats:
-            student_stats[r.studentId]["attendedSessions"].add(str(r.timestamp))
+            student_stats[r.studentId]["attendedSessions"].add(str(r.timestamp)[:10])
 
     report = []
     for stats in student_stats.values():

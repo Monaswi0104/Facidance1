@@ -196,13 +196,14 @@ function SkeletonLine({ w, h = 16 }: { w: number | string; h?: number }) {
 
 // ─── Stat Card — identical structure to teacher StatCard ─────────────────────
 
-function StatCard({ title, value, Icon, trend, trendLabel, loading }: {
+function StatCard({ title, value, Icon, trend, trendLabel, loading, onClick }: {
   title: string; value: number | string; Icon: React.ElementType;
-  trend?: "up" | "down" | "neutral"; trendLabel?: string; loading: boolean;
+  trend?: "up" | "down" | "neutral"; trendLabel?: string; loading: boolean; onClick?: () => void;
 }) {
   const [hov, setHov] = useState(false);
   return (
     <div
+      onClick={onClick}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
@@ -212,10 +213,11 @@ function StatCard({ title, value, Icon, trend, trendLabel, loading }: {
         boxShadow: hov ? SHADOW.hover : SHADOW.rest,
         transform: hov ? "translateY(-5px) scale(1.01)" : "translateY(0) scale(1)",
         transition: EASE_ALL, overflow: "hidden",
+        cursor: onClick ? "pointer" : "default",
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
             {title}
           </p>
@@ -448,12 +450,12 @@ export default function AdminDashboard() {
   };
 
   const statCards = [
-    { title: "TOTAL TEACHERS",   value: safe.teachers,    Icon: Users,         trend: "up" as const,      trendLabel: pendingTeachers > 0 ? `${pendingTeachers} pending` : "approved" },
-    { title: "TOTAL STUDENTS",   value: safe.students,    Icon: GraduationCap, trend: "up" as const,      trendLabel: `${ov.active_students} active` },
-    { title: "DEPARTMENTS",      value: safe.departments, Icon: Building2,     trend: "neutral" as const, trendLabel: `${safe.programs} programs` },
-    { title: "TOTAL COURSES",    value: safe.courses,     Icon: BookOpen,      trend: "up" as const,      trendLabel: `${ov.total_attendance_records.toLocaleString()} records` },
+    { title: "TOTAL TEACHERS",   value: safe.teachers,    Icon: Users,         trend: "up" as const,      trendLabel: pendingTeachers > 0 ? `${pendingTeachers} pending` : "approved", href: "/admin/teachers" },
+    { title: "TOTAL STUDENTS",   value: safe.students,    Icon: GraduationCap, trend: "up" as const,      trendLabel: `${ov.active_students} active`, href: "/admin/students" },
+    { title: "DEPARTMENTS",      value: safe.departments, Icon: Building2,     trend: "neutral" as const, trendLabel: `${safe.programs} programs`, href: "/admin/departments" },
+    { title: "TOTAL COURSES",    value: safe.courses,     Icon: BookOpen,      trend: "up" as const,      trendLabel: `${ov.total_attendance_records.toLocaleString()} records`, href: "/admin/courses" },
     { title: "ATTENDANCE RATE",  value: `${ov.overall_attendance_rate.toFixed(1)}%`, Icon: BarChart3, trend: ov.overall_attendance_rate >= 75 ? "up" as const : "down" as const, trendLabel: ov.overall_attendance_rate >= 75 ? "On track" : "Needs attention" },
-    { title: "GRADUATED",        value: ov.graduated_students, Icon: UserCheck, trend: "up" as const, trendLabel: "alumni" },
+    { title: "GRADUATED",        value: ov.graduated_students, Icon: UserCheck, trend: "up" as const, trendLabel: "alumni", href: "/admin/students#graduated" },
   ];
 
   const quickActions = [
@@ -542,8 +544,8 @@ export default function AdminDashboard() {
   }}
   className="stat-grid"
 >
-        {statCards.map(({ title, value, Icon, trend, trendLabel }) => (
-          <StatCard key={title} title={title} value={value} Icon={Icon} trend={trend} trendLabel={trendLabel} loading={sL || oL} />
+        {statCards.map(({ title, value, Icon, trend, trendLabel, href }) => (
+          <StatCard key={title} title={title} value={value} Icon={Icon} trend={trend} trendLabel={trendLabel} loading={sL || oL} onClick={href ? () => router.push(href) : undefined} />
         ))}
       </div>
 
@@ -810,8 +812,8 @@ export default function AdminDashboard() {
           .qa-grid   { grid-template-columns: repeat(2, 1fr) !important; }
         }
         @media (max-width: 400px) {
-          .stat-grid { grid-template-columns: 1fr !important; }
-          .qa-grid   { grid-template-columns: 1fr !important; }
+          .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .qa-grid   { grid-template-columns: repeat(2, 1fr) !important; }
         }
       `}</style>
     </div>

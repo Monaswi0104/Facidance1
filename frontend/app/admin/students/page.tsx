@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Search, Users, CheckCircle, GraduationCap, Eye, Edit, Trash2, Loader2, X, BookOpen, RotateCcw } from "lucide-react";
 import { useStudents } from "@/hooks/useAdmin";
 import { studentsApi, Student } from "@/lib/api";
@@ -87,6 +87,12 @@ export default function StudentsPage() {
   const [editForm, setEditForm] = useState({ name: "", email: "", program_id: "" });
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash === "#graduated") {
+      setStatusFilter("graduated");
+    }
+  }, []);
 
   const filtered = useMemo(() => {
     return students.filter((s) => {
@@ -245,10 +251,11 @@ export default function StudentsPage() {
 
       {/* Modal */}
       {modalType && selectedStudent && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}>
-          <div style={{ background: C.white, borderRadius: 20, border: `1px solid ${C.border}`, boxShadow: "0 32px 80px rgba(0,49,53,0.22)", width: "100%", maxWidth: 460, padding: "28px 24px", position: "relative", maxHeight: "90vh", overflowY: "auto" }}>
-            <button onClick={closeModal} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", cursor: "pointer", color: C.muted }}><X size={18} /></button>
-            {error && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", fontSize: 12 }}>{error}</div>}
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div style={{ background: C.white, borderRadius: 20, border: `1px solid ${C.border}`, boxShadow: "0 32px 80px rgba(0,49,53,0.22)", width: "100%", maxWidth: 460, position: "relative", display: "flex", flexDirection: "column", maxHeight: "90vh", overflow: "hidden" }}>
+            <button onClick={closeModal} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", cursor: "pointer", color: C.muted, zIndex: 10 }}><X size={18} /></button>
+            <div style={{ padding: "28px 24px", overflowY: "auto", flex: 1, minHeight: 0 }}>
+              {error && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", fontSize: 12 }}>{error}</div>}
 
             {modalType === "view" && (
               <>
@@ -372,6 +379,7 @@ export default function StudentsPage() {
                 </div>
               </>
             )}
+            </div>
           </div>
         </div>
       )}

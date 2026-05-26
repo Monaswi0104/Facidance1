@@ -251,9 +251,9 @@ function NavbarShell({ nav, homeHref, displayName, subtitle }: ShellProps) {
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "7px 13px", borderRadius: 10,
-              background: logoutHov ? "#fef2f2" : "transparent",
-              border: `1px solid ${logoutHov ? "rgba(239,68,68,0.25)" : "#e2e8f0"}`,
-              color: logoutHov ? "#ef4444" : "#94a3b8",
+              background: logoutHov ? "#fee2e2" : "#fef2f2",
+              border: `1px solid ${logoutHov ? "rgba(239,68,68,0.4)" : "rgba(239,68,68,0.2)"}`,
+              color: "#ef4444",
               cursor: "pointer", fontWeight: 600, fontSize: 12.5,
               transition: EASE,
               transform: logoutHov ? "translateY(-1px)" : "translateY(0)",

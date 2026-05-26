@@ -57,7 +57,7 @@ function StatCard({ title, value, Icon, color, sub }: {
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>
             {title}
           </p>
@@ -411,7 +411,7 @@ export default function AttendanceHistoryPage() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 1100px) { .stat-grid { grid-template-columns: repeat(2, 1fr) !important; } }
-        @media (max-width: 540px)  { .stat-grid { grid-template-columns: 1fr !important; } }
+        @media (max-width: 540px)  { .stat-grid { grid-template-columns: repeat(2, 1fr) !important; } }
       `}</style>
     </div>
   );

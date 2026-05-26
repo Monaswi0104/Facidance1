@@ -120,7 +120,6 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   <main style={{
     flex: 1,
     position: "relative",
-    zIndex: 1,
     padding: "clamp(16px, 3vw, 36px) clamp(10px, 4vw, 40px)",
   }}>
     {children}

@@ -166,6 +166,7 @@ export default function AttendanceCapturePage() {
   const [manuallyMarked, setManuallyMarked] = useState<Set<string>>(new Set());
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [lastSubmitDate, setLastSubmitDate] = useState<string | null>(null);
+  const [summarySubmitted, setSummarySubmitted] = useState(false);
 
   useEffect(() => {
     if (initialLoadRef.current) return;
@@ -323,45 +324,66 @@ export default function AttendanceCapturePage() {
 
   function endSession() {
     cleanup(); setSessionActive(false); setSessionPaused(false);
-    if (allRecognizedStudents.size > 0) toast.success("Session ended", `${allRecognizedStudents.size} student${allRecognizedStudents.size > 1 ? "s" : ""} recognized. Submit to save.`, 7000);
-    else toast.warning("Session ended", "No students were recognized.");
+    
+    const allPresentCount = allRecognizedStudents.size + manuallyMarked.size;
+    
+    if (allPresentCount > 0) {
+      toast.success("Session ended", `${allPresentCount} student${allPresentCount > 1 ? "s" : ""} present. Review and submit.`, 7000);
+      setShowSessionSummary(true);
+      setSummarySubmitted(false);
+    }
+    else toast.warning("Session ended", "No students were marked present.");
   }
 
-  async function submitAttendance() {
+  function showSummaryForSubmit() {
     if (allRecognizedStudents.size === 0 || !courseId) { toast.error("Cannot submit", "No students recognized"); return; }
+    setShowSessionSummary(true);
+    setSummarySubmitted(false);
+    setManuallyMarked(new Set());
+  }
+
+  async function submitFinalAttendance() {
+    if (!courseId) return;
+    const allPresentIds = new Set(allRecognizedStudents);
+    manuallyMarked.forEach((id) => allPresentIds.add(id));
+    if (allPresentIds.size === 0) { toast.error("Cannot submit", "No students marked present"); return; }
     setSubmitting(true);
     try {
       const submitDate = new Date().toISOString();
-      const finalRec: RecognitionStudent[] = Array.from(allRecognizedStudents)
+      const finalRec: RecognitionStudent[] = Array.from(allPresentIds)
         .map((sid) => { const s = students.find((st) => st.id === sid); return s ? { id: s.id, name: s.name, email: s.email } : null; })
         .filter((s): s is RecognitionStudent => s !== null);
       const result = await teacherAttendanceApi.submitAttendance(courseId, { recognizedStudents: finalRec }, submitDate);
       toast.success("Submitted!", `Present: ${result.statistics.present}, Absent: ${result.statistics.absent}, Rate: ${result.statistics.attendanceRate}%`, 7000);
       await fetchAttendanceHistory(courseId);
       setLastSubmitDate(submitDate);
+      setSummarySubmitted(true);
+      
+      // Reset state after successful submission
+      setSessionRecognitions([]);
+      setAllRecognizedStudents(new Set());
+      setCurrentRecognition(null);
       setManuallyMarked(new Set());
-      setShowSessionSummary(true);
+      
     } catch { toast.error("Submission failed", ""); }
     finally { setSubmitting(false); }
   }
 
-  async function handleMarkPresent(studentId: string) {
-    if (!courseId) return;
-    setMarkingId(studentId);
-    try {
-      await teacherAttendanceApi.markPresent(courseId, studentId, lastSubmitDate || undefined);
-      setManuallyMarked((prev) => new Set(prev).add(studentId));
-      setAllRecognizedStudents((prev) => new Set(prev).add(studentId));
-      toast.success("Marked present", "Attendance updated successfully");
-      await fetchAttendanceHistory(courseId);
-    } catch { toast.error("Failed", "Could not mark student as present"); }
-    finally { setMarkingId(null); }
+  function handleMarkPresent(studentId: string) {
+    setManuallyMarked((prev) => new Set(prev).add(studentId));
+  }
+
+  function handleUnmarkPresent(studentId: string) {
+    setManuallyMarked((prev) => {
+      const next = new Set(prev);
+      next.delete(studentId);
+      return next;
+    });
   }
 
   function dismissSummary() {
     setShowSessionSummary(false);
-    setSessionRecognitions([]); setAllRecognizedStudents(new Set()); setCurrentRecognition(null);
-    setManuallyMarked(new Set()); setLastSubmitDate(null);
+    setSummarySubmitted(false);
   }
 
   function goBack() {
@@ -378,7 +400,11 @@ export default function AttendanceCapturePage() {
 
   const trainedCount    = students.filter((s) => s.hasFaceData).length;
   const untrainedCount  = students.length - trainedCount;
-  const recognizedCount = allRecognizedStudents.size;
+
+  const allPresentSet   = new Set(allRecognizedStudents);
+  manuallyMarked.forEach((id) => allPresentSet.add(id));
+  const recognizedCount = allPresentSet.size;
+
   const attendanceRate  = students.length > 0 ? ((recognizedCount / students.length) * 100).toFixed(1) : "0.0";
   const historyEntries  = Object.entries(attendanceHistory).sort(([a], [b]) => b.localeCompare(a));
   const timeProgress    = ((SESSION_DURATION - timeRemaining) / SESSION_DURATION) * 100;
@@ -742,14 +768,16 @@ export default function AttendanceCapturePage() {
                           Recognized students · {currentRecognition ? `Last scan: ${currentRecognition.totalFaces} faces` : ""}
                         </p>
                         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto", paddingRight: 4 }}>
-                          {Array.from(allRecognizedStudents).map((sid) => {
+                          {Array.from(allPresentSet).map((sid) => {
                             const s = students.find((st) => st.id === sid);
                             if (!s) return null;
+                            const isManual = manuallyMarked.has(sid) && !allRecognizedStudents.has(sid);
                             return (
                               <div key={sid} style={{
                                 display: "flex", alignItems: "center", justifyContent: "space-between",
                                 padding: "10px 14px", borderRadius: 11,
-                                background: "rgba(15,164,175,0.06)", border: `1px solid ${C.borderHov}`,
+                                background: isManual ? "rgba(16,185,129,0.06)" : "rgba(15,164,175,0.06)", 
+                                border: `1px solid ${isManual ? "rgba(16,185,129,0.15)" : C.borderHov}`,
                               }}>
                                 <div>
                                   <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.name}</p>
@@ -757,10 +785,11 @@ export default function AttendanceCapturePage() {
                                 </div>
                                 <span style={{
                                   padding: "3px 10px", borderRadius: 20,
-                                  background: ICON_GRAD, color: "#fff",
+                                  background: isManual ? "rgba(16,185,129,0.1)" : ICON_GRAD, 
+                                  color: isManual ? "#059669" : "#fff",
                                   fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
                                 }}>
-                                  ✔ Present
+                                  {isManual ? "✔ Marked" : "✔ Present"}
                                 </span>
                               </div>
                             );
@@ -769,24 +798,41 @@ export default function AttendanceCapturePage() {
                       </div>
                     )}
 
-                    {recognizedCount > 0 && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {(sessionActive || recognizedCount > 0) && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16 }}>
                         <button
-                          onClick={submitAttendance}
+                          onClick={() => setShowSessionSummary(true)}
                           disabled={submitting}
                           style={{
                             width: "100%", padding: "12px 0",
                             borderRadius: 12, fontSize: 13.5, fontWeight: 700,
-                            background: submitting ? "#e2e8f0" : ICON_GRAD,
-                            color: submitting ? C.muted : "#fff", border: "none",
+                            background: "#f1f5f9", border: `1px solid ${C.borderHov}`,
+                            color: C.text,
                             cursor: submitting ? "not-allowed" : "pointer",
-                            boxShadow: submitting ? "none" : SHADOW.active,
                             transition: EASE_ALL,
                           }}
                         >
-                          {submitting ? "Submitting…" : `Submit Attendance (${recognizedCount} present)`}
+                          Review & Mark Manually
                         </button>
-                        {sessionActive && (
+                        
+                        {recognizedCount > 0 && (
+                          <button
+                            onClick={submitFinalAttendance}
+                            disabled={submitting}
+                            style={{
+                              width: "100%", padding: "12px 0",
+                              borderRadius: 12, fontSize: 13.5, fontWeight: 700,
+                              background: submitting ? "#e2e8f0" : ICON_GRAD,
+                              color: submitting ? C.muted : "#fff", border: "none",
+                              cursor: submitting ? "not-allowed" : "pointer",
+                              boxShadow: submitting ? "none" : SHADOW.active,
+                              transition: EASE_ALL,
+                            }}
+                          >
+                            {submitting ? "Submitting…" : `Submit Attendance (${recognizedCount} present)`}
+                          </button>
+                        )}
+                        {sessionActive && recognizedCount > 0 && (
                           <p style={{ fontSize: 11.5, textAlign: "center", color: C.body }}>
                             💡 You can submit now or wait until the session ends
                           </p>
@@ -806,8 +852,8 @@ export default function AttendanceCapturePage() {
         const absentStudents = students.filter(
           (s) => !allRecognizedStudents.has(s.id) && !manuallyMarked.has(s.id)
         );
-        const markedStudents = students.filter((s) => manuallyMarked.has(s.id));
-        const totalPresent = allRecognizedStudents.size + markedStudents.filter((s) => !allRecognizedStudents.has(s.id)).length;
+        const markedStudents = students.filter((s) => manuallyMarked.has(s.id) && !allRecognizedStudents.has(s.id));
+        const totalPresent = allRecognizedStudents.size + markedStudents.length;
 
         return (
           <div style={{
@@ -873,6 +919,40 @@ export default function AttendanceCapturePage() {
 
               {/* Scrollable student list */}
               <div style={{ flex: 1, overflowY: "auto", padding: "16px 28px 24px", minHeight: 0 }}>
+
+                {/* AI Recognized present */}
+                {allRecognizedStudents.size > 0 && (
+                  <div style={{ marginBottom: 20 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
+                      🤖 AI Recognized ({allRecognizedStudents.size})
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {Array.from(allRecognizedStudents).map((sid) => {
+                        const s = students.find((st) => st.id === sid);
+                        if (!s) return null;
+                        return (
+                          <div key={s.id} style={{
+                            display: "flex", alignItems: "center", justifyContent: "space-between",
+                            padding: "10px 14px", borderRadius: 11,
+                            background: "rgba(15,164,175,0.06)", border: `1px solid ${C.borderHov}`,
+                          }}>
+                            <div>
+                              <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.name}</p>
+                              <p style={{ fontSize: 11, color: C.body, marginTop: 2 }}>{s.email}</p>
+                            </div>
+                            <span style={{
+                              padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                              background: ICON_GRAD, color: "#fff",
+                            }}>
+                              ✔ Present
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Manually marked */}
                 {markedStudents.length > 0 && (
                   <div style={{ marginBottom: 20 }}>
@@ -890,12 +970,27 @@ export default function AttendanceCapturePage() {
                             <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.name}</p>
                             <p style={{ fontSize: 11, color: C.body, marginTop: 2 }}>{s.email}</p>
                           </div>
-                          <span style={{
-                            padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
-                            background: "rgba(16,185,129,0.1)", color: "#059669",
-                          }}>
-                            ✔ Marked
-                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{
+                              padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                              background: "rgba(16,185,129,0.1)", color: "#059669",
+                            }}>
+                              ✔ Marked
+                            </span>
+                            {!summarySubmitted && (
+                              <button
+                                onClick={() => handleUnmarkPresent(s.id)}
+                                style={{
+                                  padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                                  background: "rgba(239,68,68,0.08)", color: "#dc2626",
+                                  border: "1px solid rgba(239,68,68,0.15)", cursor: "pointer",
+                                  transition: EASE_ALL,
+                                }}
+                              >
+                                Undo
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -922,22 +1017,16 @@ export default function AttendanceCapturePage() {
                           </div>
                           <button
                             onClick={() => handleMarkPresent(s.id)}
-                            disabled={markingId === s.id}
                             style={{
                               display: "inline-flex", alignItems: "center", gap: 5,
                               padding: "6px 14px", borderRadius: 10, fontSize: 12, fontWeight: 700,
                               background: ICON_GRAD, color: "#fff", border: "none",
-                              cursor: markingId === s.id ? "not-allowed" : "pointer",
-                              opacity: markingId === s.id ? 0.6 : 1,
+                              cursor: "pointer",
                               boxShadow: "0 4px 12px rgba(15,164,175,0.3)",
                               transition: EASE_ALL,
                             }}
                           >
-                            {markingId === s.id ? (
-                              <><div style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> Marking…</>
-                            ) : (
-                              <><UserPlus size={13} /> Mark Present</>
-                            )}
+                            <UserPlus size={13} /> Mark Present
                           </button>
                         </div>
                       ))}
@@ -955,7 +1044,7 @@ export default function AttendanceCapturePage() {
               {/* Footer */}
               <div style={{
                 padding: "16px 28px", borderTop: `1px solid ${C.border}`,
-                display: "flex", justifyContent: "flex-end",
+                display: "flex", justifyContent: "flex-end", gap: 10,
               }}>
                 <ActionBtn variant="primary" onClick={dismissSummary}>
                   Done

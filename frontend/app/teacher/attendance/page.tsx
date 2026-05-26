@@ -82,7 +82,7 @@ function StatCard({ title, value, Icon, color }: { title: string; value: number;
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>{title}</p>
           <p style={{ fontSize: 32, fontWeight: 800, color: color ?? C.text, letterSpacing: "-0.03em", lineHeight: 1, marginTop: 9 }}>{value}</p>
         </div>
@@ -543,7 +543,7 @@ export default function TeacherAttendance() {
         <style>{`
           @keyframes spin { to { transform: rotate(360deg); } }
           @media (max-width: 1100px) { .stat-grid { grid-template-columns: repeat(2, 1fr) !important; } }
-          @media (max-width: 540px)  { .stat-grid { grid-template-columns: 1fr !important; } }
+          @media (max-width: 540px)  { .stat-grid { grid-template-columns: repeat(2, 1fr) !important; } }
         `}</style>
       </div>
     </>

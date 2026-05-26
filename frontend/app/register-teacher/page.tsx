@@ -492,18 +492,26 @@ export default function RegisterTeacherPage() {
         @keyframes spin { to { transform: rotate(360deg); } }
 
         @media (max-width: 768px) {
-          .reg-left    { display: none !important; }
-          .mobile-logo { display: flex !important; }
-
           .auth-root {
+            flex-direction: column !important;
             height: auto !important;
             min-height: 100vh !important;
             overflow: visible !important;
           }
 
-          .auth-right {
+          .reg-left {
+            width: 100% !important;
             height: auto !important;
-            min-height: 100vh !important;
+            min-height: 480px !important;
+            padding: 40px 24px !important;
+          }
+
+          .mobile-logo { display: none !important; }
+
+          .auth-right {
+            width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
             align-items: flex-start !important;
             justify-content: flex-start !important;
             padding: 40px 24px 56px !important;

@@ -88,7 +88,7 @@ function StatCard({ title, value, Icon, color, sub }: {
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>
             {title}
           </p>
@@ -302,10 +302,24 @@ export default function TeacherReports() {
     { name: "< 50%", value: below50 },
   ].filter((d) => d.value > 0);
 
-  const barData = report.map((r) => ({
-    name: r.studentName.split(" ")[0] ?? r.studentName.slice(0, 10),
-    pct: Number(r.percentage.toFixed(1)),
-  }));
+  // Detect duplicate first names for chart labels
+  const firstNameCount: Record<string, number> = {};
+  report.forEach((r) => {
+    const cleanName = r.studentName.replace(" (Graduated)", "");
+    const first = cleanName.split(" ")[0] ?? cleanName;
+    firstNameCount[first] = (firstNameCount[first] || 0) + 1;
+  });
+
+  const barData = report.map((r) => {
+    const cleanName = r.studentName.replace(" (Graduated)", "");
+    const parts = cleanName.split(" ");
+    const first = parts[0] ?? cleanName;
+    // If duplicate first name, append last name initial
+    const label = firstNameCount[first] > 1 && parts.length > 1
+      ? `${first} ${parts[parts.length - 1][0]}.`
+      : first;
+    return { name: label, pct: Number(r.percentage.toFixed(1)) };
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>

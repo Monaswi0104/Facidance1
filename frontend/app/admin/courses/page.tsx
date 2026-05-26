@@ -111,7 +111,16 @@ export default function CoursesPage() {
   const [form, setForm] = useState({ name: "", teacher_id: "", program_id: "", academic_year: "", semester_number: "", department_filter: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filterSemester, setFilterSemester] = useState("");
   const { toasts, toast, removeToast } = useToast();
+
+  const filteredCourses = (courses || []).filter((c) => {
+    if (filterSemester && c.semester_name !== filterSemester) return false;
+    return true;
+  });
+  
+  const uniqueSemesters = Array.from(new Set((courses || []).map(c => c.semester_name).filter(Boolean))) as string[];
+  uniqueSemesters.sort();
 
   const filteredTeachers = form.department_filter
     ? teachers.filter((t) => t.departmentId === form.department_filter)
@@ -292,16 +301,47 @@ export default function CoursesPage() {
 
       {/* Course list */}
       <Card style={{ overflow: "visible" }}>
-        <div className="card-hd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div className="card-hd" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ height: 30, width: 30, minWidth: 30, borderRadius: 9, background: ICON_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <GraduationCap size={13} color="#fff" />
             </div>
             <p style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>All Courses</p>
           </div>
-          <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, background: "rgba(175,221,229,0.2)", border: `1px solid ${C.border}`, color: C.muted, fontWeight: 600 }}>
-            {courses?.length ?? 0} total
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {/* Semester Filter */}
+            <div style={{ position: "relative" }}>
+              <select 
+                value={filterSemester} 
+                onChange={(e) => setFilterSemester(e.target.value)}
+                style={{
+                  padding: "7px 32px 7px 14px", 
+                  borderRadius: 10, 
+                  border: `1px solid ${C.border}`, 
+                  background: "rgba(248,250,252,0.8)", 
+                  fontSize: 12.5, 
+                  fontWeight: 600,
+                  color: C.text, 
+                  outline: "none",
+                  cursor: "pointer",
+                  appearance: "none",
+                  WebkitAppearance: "none",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = C.borderHov)}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = C.border)}
+              >
+                <option value="">All Semesters</option>
+                {uniqueSemesters.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} color={C.muted} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+            </div>
+            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, background: "rgba(175,221,229,0.2)", border: `1px solid ${C.border}`, color: C.muted, fontWeight: 600 }}>
+              {filteredCourses.length} {filteredCourses.length === 1 ? 'course' : 'courses'}
+            </span>
+          </div>
         </div>
         <div className="card-bd">
           {loading ? (
@@ -310,16 +350,18 @@ export default function CoursesPage() {
                 <div key={i} style={{ height: 58, borderRadius: 12, background: "#f1f5f9", animation: "shimmer 1.6s ease-in-out infinite", backgroundSize: "200% 100%", backgroundImage: "linear-gradient(90deg,#f1f5f9 25%,#e8f0f5 50%,#f1f5f9 75%)" }} />
               ))}
             </div>
-          ) : !courses?.length ? (
+          ) : !filteredCourses.length ? (
             <div style={{ textAlign: "center", padding: "36px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
               <div style={{ height: 48, width: 48, borderRadius: 13, background: "rgba(175,221,229,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <BookOpen size={20} color={C.mutedLight} />
               </div>
-              <p style={{ fontSize: 13, color: C.body, margin: 0 }}>No courses yet. Add one above.</p>
+              <p style={{ fontSize: 13, color: C.body, margin: 0 }}>
+                {filterSemester ? "No courses found for this semester." : "No courses yet. Add one above."}
+              </p>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {courses.map((c) => (
+              {filteredCourses.map((c) => (
                 <CourseRow
                   key={c.id}
                   course={c}

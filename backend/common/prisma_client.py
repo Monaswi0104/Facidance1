@@ -135,10 +135,12 @@ def _build_where(where: dict, start: int = 1) -> tuple[str, list]:
                 values.extend(v["notIn"]); i += len(v["notIn"])
             elif "not" in v:
                 clauses.append(f'"{k}" != ${i}'); values.append(v["not"]); i += 1
-            elif "gte" in v:
-                clauses.append(f'"{k}" >= ${i}'); values.append(v["gte"]); i += 1
-            elif "lte" in v:
-                clauses.append(f'"{k}" <= ${i}'); values.append(v["lte"]); i += 1
+            else:
+                # Handle compound range conditions (gte + lte together)
+                if "gte" in v:
+                    clauses.append(f'"{k}" >= ${i}'); values.append(v["gte"]); i += 1
+                if "lte" in v:
+                    clauses.append(f'"{k}" <= ${i}'); values.append(v["lte"]); i += 1
         else:
             clauses.append(f'"{k}" = ${i}'); values.append(v); i += 1
     return " AND ".join(clauses), values

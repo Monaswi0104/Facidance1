@@ -256,7 +256,7 @@ function StatCard({ title, value, Icon, trend, trendLabel, loading }: {
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>
             {title}
           </p>
@@ -735,8 +735,8 @@ export default function TeacherDashboard() {
 
         /* Small mobile */
         @media (max-width: 400px) {
-          .stat-grid { grid-template-columns: 1fr !important; }
-          .qa-grid   { grid-template-columns: 1fr !important; }
+          .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .qa-grid   { grid-template-columns: repeat(2, 1fr) !important; }
         }
       `}</style>
     </div>

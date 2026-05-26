@@ -17,6 +17,7 @@ from backend.admin.schemas import (
     CreateDepartmentRequest,
     CreateProgramRequest,
     CreateTeacherRequest,
+    UpdateCourseTeacherRequest,
     UpdateStudentRequest,
 )
 
@@ -121,6 +122,16 @@ async def list_courses(_: AdminUser):
 @router.post("/courses", summary="Create a course with auto-generated code")
 async def create_course(body: CreateCourseRequest, _: AdminUser):
     course = await service.create_course(body)
+    return {"course": course}
+
+
+@router.patch("/courses/{course_id}", summary="Reassign teacher for a course")
+async def update_course_teacher(
+    course_id: Annotated[str, Path()],
+    body: UpdateCourseTeacherRequest,
+    _: AdminUser,
+):
+    course = await service.update_course_teacher(course_id, body.teacher_id)
     return {"course": course}
 
 

@@ -18,7 +18,17 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body?.detail ?? body?.error ?? `HTTP ${res.status}`);
+    let errMsg = body?.error;
+    if (!errMsg && body?.detail) {
+      if (typeof body.detail === "string") {
+        errMsg = body.detail;
+      } else if (Array.isArray(body.detail) && body.detail.length > 0) {
+        errMsg = body.detail.map((err: any) => err.msg || JSON.stringify(err)).join(", ");
+      } else {
+        errMsg = JSON.stringify(body.detail);
+      }
+    }
+    throw new Error(errMsg ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
