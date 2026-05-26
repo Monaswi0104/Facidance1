@@ -20,6 +20,7 @@ from backend.admin.schemas import (
     UpdateCourseTeacherRequest,
     UpdateStudentRequest,
     UpdateProgramRequest,
+    UpdateTeacherDepartmentRequest,
 )
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -63,6 +64,15 @@ async def delete_teacher(
     _: AdminUser,
 ):
     return await service.delete_teacher(user_id)
+
+
+@router.patch("/teachers/{user_id}", summary="Update a teacher's department")
+async def update_teacher_department(
+    user_id: Annotated[str, Path(description="User.id of the teacher")],
+    body: UpdateTeacherDepartmentRequest,
+    _: AdminUser,
+):
+    return await service.update_teacher_department(user_id, body.department_id)
 
 
 # ---------------------------------------------------------------------------

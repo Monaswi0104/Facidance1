@@ -154,6 +154,26 @@ async def create_teacher(data: CreateTeacherRequest) -> dict:
     return {"message": "Teacher created successfully", "user_id": user.id}
 
 
+async def update_teacher_department(user_id: str, department_id: str) -> dict:
+    """
+    Update the department of a teacher.
+    """
+    user = await prisma.user.find_unique(where={"id": user_id})
+    if not user or user.role != "TEACHER":
+        raise HTTPException(status_code=404, detail="Teacher user not found")
+
+    teacher = await prisma.teacher.find_first(where={"userId": user_id})
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher profile not found")
+
+    await prisma.teacher.update(
+        where={"id": teacher.id},
+        data={"departmentId": department_id}
+    )
+    return {"message": "Teacher department updated successfully"}
+
+
+
 async def delete_teacher(user_id: str) -> dict:
     """
     Delete Teacher record (if exists) then User record.

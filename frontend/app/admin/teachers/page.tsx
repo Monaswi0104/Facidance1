@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { UserPlus, Building2, Trash2, Mail, CheckCircle2, Loader2, Users, ChevronDown, BookOpen, X } from "lucide-react";
+import { UserPlus, Building2, Trash2, Mail, CheckCircle2, Loader2, Users, ChevronDown, BookOpen, X, Pencil } from "lucide-react";
 import { useTeachers, useDepartments, useCourses, useStudents } from "@/hooks/useAdmin";
 import { teachersApi } from "@/lib/api";
 import { useToast } from "@/lib/useToast";
@@ -74,15 +74,28 @@ export default function TeachersPage() {
   }
 
   async function handleDelete(userId: string) {
-    if (!confirm("Delete this teacher? This cannot be undone.")) return;
+    if (!confirm("Are you sure you want to delete this teacher? This cannot be undone.")) return;
     setActionLoading(true); setError(null);
-    try { 
-      await teachersApi.delete(userId); 
-      toast.success("Teacher Deleted", "Successfully removed teacher record.");
-      refetch(); 
+    try {
+      await teachersApi.delete(userId);
+      toast.success("Teacher Deleted", "Successfully removed teacher account");
+      refetch();
+    } catch (err) {
+      toast.error("Delete Failed", err instanceof Error ? err.message : "Failed to delete teacher");
+    } finally {
+      setActionLoading(false);
     }
-    catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed to delete teacher"); }
-    finally { setActionLoading(false); }
+  }
+
+  async function handleEditDept(userId: string, newDeptId: string) {
+    try {
+      await teachersApi.updateDepartment(userId, newDeptId);
+      toast.success("Success", "Teacher department updated successfully.");
+      refetch();
+    } catch (err) {
+      toast.error("Update Failed", err instanceof Error ? err.message : "Failed to update department");
+      throw err;
+    }
   }
 
   return (
@@ -262,7 +275,7 @@ export default function TeachersPage() {
             ) : filteredApproved.length === 0 ? (
               <EmptyState icon={Building2} message={filterDept ? "No approved teachers in this department." : "No approved teachers yet."} />
             ) : filteredApproved.map((t) => (
-              <ApprovedRow key={t.id} teacher={t} onClick={() => setSelectedTeacher(t)} onDelete={() => handleDelete(t.userId)} actionLoading={actionLoading} />
+              <ApprovedRow key={t.id} teacher={t} departments={departments ?? []} onClick={() => setSelectedTeacher(t)} onDelete={() => handleDelete(t.userId)} onEditDept={handleEditDept} actionLoading={actionLoading} />
             ))}
           </div>
         </Card>
@@ -363,16 +376,35 @@ export default function TeachersPage() {
   );
 }
 
-function ApprovedRow({ teacher, onClick, onDelete, actionLoading }: {
-  teacher: { id: string; name: string; email: string; departmentName?: string | null; userId: string };
-  onClick: () => void; onDelete: () => void; actionLoading: boolean;
+function ApprovedRow({ teacher, departments, onClick, onDelete, onEditDept, actionLoading }: {
+  teacher: { id: string; name: string; email: string; departmentName?: string | null; department_id?: string | null; departmentId?: string | null; userId: string };
+  departments: { id: string; name: string }[];
+  onClick: () => void; onDelete: () => void; onEditDept: (userId: string, newDeptId: string) => Promise<void>; actionLoading: boolean;
 }) {
   const [hov, setHov] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [newDeptId, setNewDeptId] = useState(teacher.department_id || teacher.departmentId || "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleSave(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!newDeptId) return;
+    setIsSaving(true);
+    try {
+      await onEditDept(teacher.userId, newDeptId);
+      setIsEditing(false);
+    } catch (err) {
+      // Error handled by parent
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <div
-      onClick={onClick}
+      onClick={!isEditing ? onClick : undefined}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderRadius: 14, border: `1px solid ${hov ? "rgba(15,164,175,0.22)" : "rgba(226,232,240,0.7)"}`, background: hov ? "#fff" : "rgba(248,250,252,0.8)", transition: "all 0.2s ease", boxShadow: hov ? "0 6px 20px rgba(0,49,53,0.08)" : "none", cursor: "pointer" }}
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderRadius: 14, border: `1px solid ${hov ? "rgba(15,164,175,0.22)" : "rgba(226,232,240,0.7)"}`, background: hov ? "#fff" : "rgba(248,250,252,0.8)", transition: "all 0.2s ease", boxShadow: hov ? "0 6px 20px rgba(0,49,53,0.08)" : "none", cursor: isEditing ? "default" : "pointer" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
         <div style={{ height: 40, width: 40, minWidth: 40, borderRadius: "50%", background: ICON_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -381,15 +413,47 @@ function ApprovedRow({ teacher, onClick, onDelete, actionLoading }: {
         <div style={{ minWidth: 0 }}>
           <p style={{ fontSize: 13.5, fontWeight: 700, color: "#003135", margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teacher.name}</p>
           <p style={{ fontSize: 12, color: "#475569", margin: "2px 0 0", display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}><Mail size={11} /> {teacher.email}</p>
-          <p style={{ fontSize: 11, color: "#475569", margin: "2px 0 0" }}>
-            Dept: <span style={{ fontWeight: 700, color: "#003135" }}>{teacher.departmentName ?? "—"}</span>
-          </p>
+          
+          {isEditing ? (
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+              <select
+                value={newDeptId}
+                onChange={(e) => setNewDeptId(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12, outline: "none", background: "#fff" }}
+              >
+                <option value="">Select Dept...</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+              <button disabled={isSaving || !newDeptId} onClick={handleSave} style={{ padding: "4px 10px", borderRadius: 6, background: "#0FA4AF", color: "#fff", border: "none", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                {isSaving ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : "Save"}
+              </button>
+              <button disabled={isSaving} onClick={(e) => { e.stopPropagation(); setIsEditing(false); setNewDeptId(teacher.department_id || teacher.departmentId || ""); }} style={{ padding: "4px 10px", borderRadius: 6, background: "#e2e8f0", color: "#475569", border: "none", fontSize: 11, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <p style={{ fontSize: 11, color: "#475569", margin: "2px 0 0" }}>
+              Dept: <span style={{ fontWeight: 700, color: "#003135" }}>{teacher.departmentName ?? "—"}</span>
+            </p>
+          )}
         </div>
       </div>
-      <button onClick={(e) => { e.stopPropagation(); onDelete(); }} disabled={actionLoading}
-        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 9, border: "1px solid #fecdd3", background: hov ? "#fff1f2" : "transparent", color: "#e11d48", fontSize: 12, fontWeight: 600, cursor: actionLoading ? "not-allowed" : "pointer", transition: "all 0.2s ease", flexShrink: 0, whiteSpace: "nowrap" }}>
-        <Trash2 size={12} /> Delete
-      </button>
+      
+      {!isEditing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={(e) => { e.stopPropagation(); setIsEditing(true); }} disabled={actionLoading}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 9, border: "1px solid #cbd5e1", background: hov ? "#fff" : "transparent", color: "#475569", fontSize: 12, fontWeight: 600, cursor: actionLoading ? "not-allowed" : "pointer", transition: "all 0.2s ease", flexShrink: 0, whiteSpace: "nowrap" }}>
+            <Pencil size={12} /> Edit
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onDelete(); }} disabled={actionLoading}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 9, border: "1px solid #fecdd3", background: hov ? "#fff1f2" : "transparent", color: "#e11d48", fontSize: 12, fontWeight: 600, cursor: actionLoading ? "not-allowed" : "pointer", transition: "all 0.2s ease", flexShrink: 0, whiteSpace: "nowrap" }}>
+            <Trash2 size={12} /> Delete
+          </button>
+        </div>
+      )}
     </div>
   );
 }

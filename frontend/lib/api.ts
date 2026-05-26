@@ -65,6 +65,11 @@ export const teachersApi = {
     apiFetch("/admin/teachers", { method: "POST", body: JSON.stringify(data) }),
   delete: (userId: string) =>
     apiFetch(`/admin/teachers/${userId}`, { method: "DELETE" }),
+  updateDepartment: (userId: string, departmentId: string) =>
+    apiFetch(`/admin/teachers/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ department_id: departmentId }),
+    }),
 };
 
 export interface Department {
