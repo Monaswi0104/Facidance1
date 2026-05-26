@@ -90,6 +90,9 @@ export default function DepartmentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
+  const [reassignDept, setReassignDept] = useState<Department | null>(null);
+  const [newDeptId, setNewDeptId] = useState("");
+  const [reassignLoading, setReassignLoading] = useState(false);
   const [allPrograms, setAllPrograms] = useState<Program[]>([]);
   const [allTeachers, setAllTeachers] = useState<Teacher[]>([]);
   const { toasts, toast, removeToast } = useToast();
@@ -111,6 +114,15 @@ export default function DepartmentsPage() {
     finally { setLoading(false); }
   }
 
+  async function handleDeleteClick(dept: Department) {
+    if ((dept.programs_count ?? 0) > 0) {
+      setReassignDept(dept);
+      setNewDeptId("");
+      return;
+    }
+    await deleteDepartment(dept.id, dept.name);
+  }
+
   async function deleteDepartment(id: string, name: string) {
     if (!confirm(`Delete "${name}" department? This cannot be undone.`)) return;
     setError(null);
@@ -120,6 +132,35 @@ export default function DepartmentsPage() {
       await fetchDepartments(); 
     }
     catch (err) { setError(err instanceof Error ? err.message : "Failed to delete department"); }
+  }
+
+  async function handleReassignAndDelete() {
+    if (!reassignDept || !newDeptId) return;
+    setReassignLoading(true);
+    setError(null);
+    try {
+      const deptPrograms = allPrograms.filter((p) => p.department_id === reassignDept.id);
+      
+      // Update all programs
+      await Promise.all(
+        deptPrograms.map((p) => programsApi.updateDepartment(p.id, newDeptId))
+      );
+      
+      // Now delete the department
+      await departmentsApi.delete(reassignDept.id);
+      
+      toast.success("Success", `Programs reassigned and department deleted.`);
+      setReassignDept(null);
+      await fetchDepartments();
+      
+      // Refresh programs too so allPrograms gets updated
+      const progData = await programsApi.list();
+      setAllPrograms(progData.programs);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reassign and delete");
+    } finally {
+      setReassignLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -249,12 +290,62 @@ export default function DepartmentsPage() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {departments.map((dept) => (
-                <DeptRow key={dept.id} dept={dept} onClick={() => setSelectedDept(dept)} onDelete={() => deleteDepartment(dept.id, dept.name)} />
+                <DeptRow key={dept.id} dept={dept} onClick={() => setSelectedDept(dept)} onDelete={() => handleDeleteClick(dept)} />
               ))}
             </div>
           )}
         </div>
       </Card>
+
+      {/* Reassign & Delete Modal */}
+      {reassignDept && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15,23,42,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: C.white, borderRadius: 20, padding: 30, width: "100%", maxWidth: 450, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.15)", position: "relative" }}>
+            <button onClick={() => setReassignDept(null)} style={{ position: "absolute", top: 16, right: 16, background: "rgba(226,232,240,0.5)", border: "none", width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.muted }}>
+              <X size={16} />
+            </button>
+
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 16, borderBottom: `1px solid ${C.border}`, paddingBottom: 20, marginBottom: 20 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, background: "#115e59", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Building2 size={22} color="#fff" />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Reassign Programs</h2>
+                <p style={{ fontSize: 13, color: C.mutedLight, margin: 0 }}>"{reassignDept.name}" has {reassignDept.programs_count} program(s) assigned.</p>
+              </div>
+            </div>
+
+            <p style={{ fontSize: 14, color: C.text, margin: "0 0 20px", fontWeight: 500, lineHeight: 1.5 }}>
+              You must move these programs to another department before deleting this one.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 800, color: "#115e59", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Select New Department</label>
+                <select
+                  value={newDeptId}
+                  onChange={(e) => setNewDeptId(e.target.value)}
+                  style={{ width: "100%", padding: "13px 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.white, fontSize: 14, color: C.text, outline: "none", boxSizing: "border-box" }}
+                >
+                  <option value="">Select department...</option>
+                  {departments.filter(d => d.id !== reassignDept.id).map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button 
+              onClick={handleReassignAndDelete}
+              disabled={reassignLoading || !newDeptId}
+              style={{ width: "100%", padding: "14px 0", borderRadius: 12, background: "#5a968f", border: "none", color: "#fff", fontSize: 15, fontWeight: 700, cursor: reassignLoading || !newDeptId ? "not-allowed" : "pointer", opacity: reassignLoading || !newDeptId ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+            >
+              {reassignLoading ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : null}
+              Reassign & Delete
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Department Detail Modal */}
       {selectedDept && (() => {
