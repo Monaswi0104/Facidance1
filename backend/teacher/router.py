@@ -38,6 +38,9 @@ from backend.teacher.schemas import (
     SendCredentialsRequest,
     SubmitAttendanceRequest,
     EnrollExistingRequest,
+    UpdateManualMarkRequest,
+    SessionStatusUpdate,
+    SessionStartRequest,
 )
 
 router = APIRouter(prefix="/teacher", tags=["Teacher"])
@@ -226,6 +229,44 @@ async def submit_attendance(body: SubmitAttendanceRequest, _: TeacherUser):
 @router.patch("/attendance/mark-present", summary="Manually mark a student as present")
 async def mark_present(body: MarkPresentRequest, _: TeacherUser):
     return await service.mark_present(body.course_id, body.student_id, body.date)
+
+
+@router.get("/attendance/active-session", summary="Get active session state for live sync")
+async def get_active_session(
+    _: TeacherUser,
+    course_id: str = Query(...),
+):
+    return service.get_active_session(course_id)
+
+
+@router.post("/attendance/active-session/manual", summary="Toggle manual mark in active session")
+async def update_manual_mark(body: UpdateManualMarkRequest, _: TeacherUser):
+    return service.update_manual_mark(body.course_id, body.student_id, body.is_present)
+
+
+@router.patch("/attendance/active-session/{course_id}/status", summary="Update active session status")
+async def update_active_session_status(
+    course_id: str,
+    data: SessionStatusUpdate,
+    _: TeacherUser,
+):
+    return service.update_session_status(course_id, data.status)
+
+@router.post("/attendance/active-session/{course_id}/start", summary="Start active session with absolute time")
+async def start_active_session(
+    course_id: str,
+    data: SessionStartRequest,
+    _: TeacherUser,
+):
+    return service.start_session(course_id, data.start_time)
+
+@router.delete("/attendance/active-session/{course_id}", summary="Clear active session (end session)")
+async def clear_active_session(
+    course_id: str,
+    _: TeacherUser,
+):
+    service.clear_active_session(course_id)
+    return {"success": True}
 
 
 @router.get("/attendance/history", summary="Attendance history for a course grouped by date")

@@ -359,7 +359,7 @@ export default function ProgramsPage() {
                 <p style={{ fontSize: 12, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12, flexShrink: 0 }}>Courses</p>
                 <div style={{ paddingBottom: 10 }}>
                   {progCourses.length > 0 ? progCourses.map(c => {
-                    const enrolledCount = allStudents.filter(s => s.courses?.some(sc => sc.id === c.id)).length;
+                    const enrolledCount = allStudents.filter(s => s.program_id === selectedProgram.id && s.courses?.some(sc => sc.id === c.id)).length;
                     return (
                       <div key={c.id} style={{ display: "flex", background: C.white, padding: 14, borderRadius: 12, marginBottom: 8, border: `1px solid ${C.border}` }}>
                         <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(15,164,175,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginRight: 12, flexShrink: 0 }}>

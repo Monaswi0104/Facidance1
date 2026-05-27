@@ -130,6 +130,7 @@ export default function AttendanceCapturePage() {
   const captureIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const livePollingRef = useRef<NodeJS.Timeout | null>(null);
   const initialLoadRef = useRef(false);
 
   const [courseId, setCourseId] = useState("");
@@ -203,7 +204,43 @@ export default function AttendanceCapturePage() {
     if (captureIntervalRef.current) clearInterval(captureIntervalRef.current);
     if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    if (livePollingRef.current) clearInterval(livePollingRef.current);
   }
+
+  // ─── Live session sync: poll backend every 3s for manual marks from mobile ───
+  useEffect(() => {
+    if (sessionActive && !sessionPaused && courseId) {
+      async function pollActiveSession() {
+        try {
+          const data = await teacherAttendanceApi.getActiveSession(courseId);
+          if (data && data.active !== false) {
+            // Merge manual marks from mobile app
+            if (data.manually_marked) {
+              setManuallyMarked((prev) => {
+                const next = new Set(prev);
+                data.manually_marked.forEach((id: string) => next.add(id));
+                // Remove any that were unmarked from mobile
+                prev.forEach((id) => {
+                  if (!data.manually_marked.includes(id)) next.delete(id);
+                });
+                return next;
+              });
+            }
+          }
+        } catch (e) {
+          // Silent fail on polling errors
+        }
+      }
+      pollActiveSession();
+      livePollingRef.current = setInterval(pollActiveSession, 3000);
+      return () => {
+        if (livePollingRef.current) { clearInterval(livePollingRef.current); livePollingRef.current = null; }
+      };
+    } else {
+      if (livePollingRef.current) { clearInterval(livePollingRef.current); livePollingRef.current = null; }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionActive, sessionPaused, courseId]);
 
   async function fetchStudents(cid: string) {
     try {
@@ -299,8 +336,12 @@ export default function AttendanceCapturePage() {
     if (students.filter((s) => s.hasFaceData).length === 0) { toast.error("No trained students", "Please train the model first"); return; }
     try {
       await startCamera();
+      const startTime = Date.now();
+      if (courseId) {
+        teacherAttendanceApi.startActiveSession(courseId, startTime).catch(() => {});
+      }
       setSessionActive(true); setSessionPaused(false);
-      setSessionStartTime(Date.now()); setTimeRemaining(SESSION_DURATION);
+      setSessionStartTime(startTime); setTimeRemaining(SESSION_DURATION);
       setSessionRecognitions([]); setAllRecognizedStudents(new Set()); setCurrentRecognition(null);
       toast.success("Session started", "45-minute attendance session active");
       await new Promise((r) => setTimeout(r, 1000));
@@ -324,6 +365,10 @@ export default function AttendanceCapturePage() {
 
   function endSession() {
     cleanup(); setSessionActive(false); setSessionPaused(false);
+    if (courseId) {
+      // Clear the active session on the backend so the mobile app sees active:false immediately
+      teacherAttendanceApi.clearActiveSession(courseId).catch(() => {});
+    }
     
     const allPresentCount = allRecognizedStudents.size + manuallyMarked.size;
     
@@ -371,6 +416,8 @@ export default function AttendanceCapturePage() {
 
   function handleMarkPresent(studentId: string) {
     setManuallyMarked((prev) => new Set(prev).add(studentId));
+    // Sync to backend so the mobile app sees this mark
+    if (courseId) teacherAttendanceApi.updateManualMark(courseId, studentId, true).catch(() => {});
   }
 
   function handleUnmarkPresent(studentId: string) {
@@ -379,6 +426,8 @@ export default function AttendanceCapturePage() {
       next.delete(studentId);
       return next;
     });
+    // Sync to backend so the mobile app sees this unmark
+    if (courseId) teacherAttendanceApi.updateManualMark(courseId, studentId, false).catch(() => {});
   }
 
   function dismissSummary() {

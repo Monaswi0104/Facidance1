@@ -25,6 +25,7 @@ from backend.teacher.schemas import (
     SubmitAttendanceRequest,
     SendCredentialsRequest,
     RemoveStudentRequest,
+    SessionStartRequest,
 )
 import httpx
 
@@ -41,6 +42,48 @@ def _to_ist(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(IST).replace(tzinfo=None)
+
+
+# ---------------------------------------------------------------------------
+# Active Session Store (in-memory, per-process)
+# ---------------------------------------------------------------------------
+# Key = course_id, Value = { "ai": set[str], "manual": set[str] }
+# Tracks live session state so the website and mobile app stay in sync.
+ACTIVE_SESSIONS: dict[str, dict[str, set[str]]] = {}
+
+
+import time
+
+def _ensure_session(course_id: str) -> dict:
+    """Get or create an active session entry for a course."""
+    if course_id not in ACTIVE_SESSIONS:
+        ACTIVE_SESSIONS[course_id] = {
+            "ai": set(),
+            "manual": set(),
+            "start_time": int(time.time() * 1000),
+            "status": "active"
+        }
+    return ACTIVE_SESSIONS[course_id]
+
+def start_session(course_id: str, start_time: int) -> dict:
+    """Explicitly start a session with an absolute start time from the client."""
+    ACTIVE_SESSIONS[course_id] = {
+        "ai": set(),
+        "manual": set(),
+        "start_time": start_time,
+        "status": "active"
+    }
+    return ACTIVE_SESSIONS[course_id]
+
+
+def _clear_session(course_id: str) -> None:
+    """Remove the active session for a course (called on submit)."""
+    ACTIVE_SESSIONS.pop(course_id, None)
+
+
+def clear_active_session(course_id: str) -> None:
+    """Public alias — clears the active session (called when ending from website)."""
+    _clear_session(course_id)
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +527,11 @@ async def recognize_faces(
 
     recognized_ids: list[str] = results.get("recognizedStudents", [])
 
+    # Push AI recognitions into the active session store for live sync
+    if recognized_ids:
+        session = _ensure_session(course_id)
+        session["ai"].update(recognized_ids)
+
     if recognized_ids:
         students = await prisma.student.find_many(
             where={"id": {"in": recognized_ids}},
@@ -533,6 +581,10 @@ async def submit_attendance(data: SubmitAttendanceRequest) -> dict:
         for s in recognition_results.get("recognizedStudents", [])
     ]
     result = await _do_submit_attendance(course_id, recognized_ids, date_str)
+
+    # Clear the active session store on successful submit
+    _clear_session(course_id)
+
     return result
 
 
@@ -697,6 +749,58 @@ async def mark_present(course_id: str, student_id: str, date_str: Optional[str])
         "success": True,
         "message": "Student marked as present",
         "attendance_id": rec.id,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Active Session — live sync between website and mobile
+# ---------------------------------------------------------------------------
+
+def get_active_session(course_id: str) -> dict:
+    """
+    Return the current active session state for a course.
+    Called by both the website and mobile app via polling.
+    """
+    session = ACTIVE_SESSIONS.get(course_id)
+    if not session:
+        return {
+            "course_id": course_id,
+            "ai_recognized": [],
+            "manually_marked": [],
+            "active": False,
+        }
+    return {
+        "course_id": course_id,
+        "ai_recognized": list(session["ai"]),
+        "manually_marked": list(session["manual"]),
+        "active": True,
+        "status": session.get("status", "active"),
+        "start_time": session.get("start_time"),
+    }
+
+def update_session_status(course_id: str, status: str) -> None:
+    session = ACTIVE_SESSIONS.get(course_id)
+    if session:
+        session["status"] = status
+
+
+def update_manual_mark(course_id: str, student_id: str, is_present: bool) -> dict:
+    """
+    Add or remove a student from the manual marks in the active session.
+    Called by both the website and mobile app when the teacher manually marks.
+    """
+    session = _ensure_session(course_id)
+    if is_present:
+        session["manual"].add(student_id)
+    else:
+        session["manual"].discard(student_id)
+    return {
+        "success": True,
+        "course_id": course_id,
+        "student_id": student_id,
+        "is_present": is_present,
+        "ai_recognized": list(session["ai"]),
+        "manually_marked": list(session["manual"]),
     }
 
 
