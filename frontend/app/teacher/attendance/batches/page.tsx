@@ -257,7 +257,7 @@ export default function AttendanceCapturePage() {
   }
 
   async function startCamera() {
-    const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, audio: false });
+    const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, facingMode: "user" }, audio: false });
     if (videoRef.current) { videoRef.current.srcObject = mediaStream; setStream(mediaStream); setCameraActive(true); }
   }
 
@@ -553,6 +553,14 @@ export default function AttendanceCapturePage() {
                   <MiniStat label="Scans"    value={sessionRecognitions.length} color={C.body} />
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
+                  <ActionBtn 
+                    variant="primary" 
+                    onClick={captureAndRecognize}
+                    disabled={capturing || sessionPaused}
+                  >
+                    {capturing ? <Zap size={14} className="animate-pulse" /> : <Camera size={14} />} 
+                    {capturing ? "Wait…" : "Capture Now"}
+                  </ActionBtn>
                   {!sessionPaused ? (
                     <ActionBtn variant="pause" onClick={pauseSession}><Pause size={14} /> Pause</ActionBtn>
                   ) : (
@@ -692,7 +700,7 @@ export default function AttendanceCapturePage() {
   boxShadow: cameraActive ? "0 0 0 3px rgba(15,164,175,0.3)" : "none",
   transition: EASE_ALL,
 }}>
-  <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${BASE_SCALE * zoom})`, transformOrigin: `${50 + (pan / 2)}% ${50 + (tilt / 2)}%`, transition: "all 0.15s ease-out" }} />
+  <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: `scale(${BASE_SCALE * zoom}) translate(${-pan * 0.15}%, ${-tilt * 0.15}%)`, transition: "all 0.15s ease-out" }} />
   <canvas ref={canvasRef} style={{ display: "none" }} />
 
   {/* Pre-session overlay */}
@@ -778,25 +786,25 @@ export default function AttendanceCapturePage() {
                         boxShadow: "0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)",
                       }}>
                         {/* Up */}
-                        <button onClick={() => handleTilt(Math.max(-200, tilt - 30))}
+                        <button onClick={() => handleTilt(Math.max(-100, tilt - 30))}
                           style={{ position: "absolute", top: 6, left: "50%", transform: "translateX(-50%)", width: 32, height: 32, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s ease" }}
                           onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(15,164,175,0.5)"; e.currentTarget.style.transform = "translateX(-50%) scale(1.15)"; }}
                           onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.transform = "translateX(-50%) scale(1)"; }}
                         ><ChevronUp size={16} /></button>
                         {/* Down */}
-                        <button onClick={() => handleTilt(Math.min(200, tilt + 30))}
+                        <button onClick={() => handleTilt(Math.min(100, tilt + 30))}
                           style={{ position: "absolute", bottom: 6, left: "50%", transform: "translateX(-50%)", width: 32, height: 32, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s ease" }}
                           onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(15,164,175,0.5)"; e.currentTarget.style.transform = "translateX(-50%) scale(1.15)"; }}
                           onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.transform = "translateX(-50%) scale(1)"; }}
                         ><ChevronDown size={16} /></button>
                         {/* Left */}
-                        <button onClick={() => handlePan(Math.max(-200, pan - 30))}
+                        <button onClick={() => handlePan(Math.max(-100, pan - 30))}
                           style={{ position: "absolute", left: 6, top: "50%", transform: "translateY(-50%)", width: 32, height: 32, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s ease" }}
                           onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(15,164,175,0.5)"; e.currentTarget.style.transform = "translateY(-50%) scale(1.15)"; }}
                           onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.transform = "translateY(-50%) scale(1)"; }}
                         ><ChevronLeft size={16} /></button>
                         {/* Right */}
-                        <button onClick={() => handlePan(Math.min(200, pan + 30))}
+                        <button onClick={() => handlePan(Math.min(100, pan + 30))}
                           style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 32, height: 32, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s ease" }}
                           onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(15,164,175,0.5)"; e.currentTarget.style.transform = "translateY(-50%) scale(1.15)"; }}
                           onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.transform = "translateY(-50%) scale(1)"; }}
