@@ -13,7 +13,6 @@ import {
 import { useToast } from "@/lib/useToast";
 import { ToastContainer } from "@/components/ToastContainer";
 
-// ─── Design tokens ─────────────────────────────────────────────────────────────
 const SPRING   = "cubic-bezier(.22,.68,0,1.2)";
 const EASE_ALL = `all 0.25s ${SPRING}`;
 
@@ -40,7 +39,6 @@ const C = {
 const ICON_GRAD = `linear-gradient(135deg, ${C.primary} 0%, ${C.accent} 100%)`;
 const CARD_GRAD = "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 interface FlattenedCourse {
   id: string; name: string; entryCode: string;
   departmentName: string; programName: string;
@@ -58,7 +56,6 @@ function buildCode(dept: string, sem: string, idx: number) {
   return `${getDeptCode(dept)}-${getSemNum(sem)}${String(idx + 1).padStart(2, "0")}`;
 }
 
-// ─── Components ───────────────────────────────────────────────────────────────
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div style={{ background: CARD_GRAD, border: `1px solid ${C.border}`, borderRadius: 20, overflow: "hidden", boxShadow: SHADOW.rest, ...style }}>
@@ -147,7 +144,6 @@ function ActionBtn({
   );
 }
 
-// ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function TeacherAttendance() {
   const router = useRouter();
   const { toasts, toast, removeToast } = useToast();
@@ -198,12 +194,13 @@ export default function TeacherAttendance() {
 
   async function fetchCourseStudents(courseId: string) {
     setLoading(true);
+    setCurrentView("students"); // switch view immediately
     try {
       const data = await teacherCoursesApi.getStudents(courseId);
       setStudents(data.students || []);
-      setCurrentView("students");
     } catch (e) {
       toast.error("Failed to load students", e instanceof Error ? e.message : "Unknown error");
+      setCurrentView("select"); // revert on error
     } finally {
       setLoading(false);
     }
@@ -218,16 +215,13 @@ export default function TeacherAttendance() {
 
   async function handleTrainStudents() {
     if (!selectedCourse) return;
-
     const untrainedCount = students.filter((s) => !s.faceEmbedding).length;
     if (untrainedCount === 0) {
       toast.info("Already trained", "All students already have face embeddings.");
       return;
     }
-
     setTraining(true);
     toast.info("Training started", `Processing ${untrainedCount} student(s) — this may take a few minutes…`);
-
     try {
       const { teacherAttendanceApi } = await import("@/lib/teacher-api");
       const data = await teacherAttendanceApi.runTraining(selectedCourse.id);
@@ -277,13 +271,7 @@ export default function TeacherAttendance() {
       <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
 
         {/* Header */}
-        <div
-          style={{
-            display: "flex", flexWrap: "wrap", alignItems: "center",
-            justifyContent: "space-between", gap: 16, padding: "4px 0 8px",
-          }}
-          className="header-wrap"
-        >
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "4px 0 8px" }} className="header-wrap">
           <div>
             <h1 style={{ fontSize: 28, fontWeight: 800, color: C.text, letterSpacing: "-0.03em", lineHeight: 1.1 }}>
               Attendance Management
@@ -331,31 +319,44 @@ export default function TeacherAttendance() {
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); setShowDropdown(true); }}
                   onFocus={() => { setShowDropdown(true); setSearchFocused(true); }}
-                  onBlur={() => { setTimeout(() => setShowDropdown(false), 180); setSearchFocused(false); }}
+                  onBlur={() => { setTimeout(() => { setShowDropdown(false); setSearchFocused(false); }, 300); }}
                   placeholder="Search by course name, department, program, or semester…"
                   style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 13.5, color: C.text }}
                 />
                 {searchQuery && (
-                  <button onClick={() => { setSearchQuery(""); setShowDropdown(false); }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}>
+                  <button
+                    onMouseDown={(e) => e.preventDefault()} // prevent blur before click
+                    onClick={() => { setSearchQuery(""); setShowDropdown(false); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}
+                  >
                     <X size={13} color={C.mutedLight} />
                   </button>
                 )}
               </div>
 
-              {/* Dropdown */}
+              {/* ── DROPDOWN — onMouseDown preventDefault is the key fix ── */}
               {showDropdown && filteredCourses.length > 0 && (
-                <div style={{
-                  border: `1px solid ${C.borderHov}`, borderTop: "none",
-                  borderRadius: "0 0 11px 11px",
-                  maxHeight: 300, overflowY: "auto",
-                  boxShadow: "0 12px 32px rgba(0,49,53,0.1)",
-                  background: C.white,
-                }}>
+                <div
+                  onMouseDown={(e) => e.preventDefault()} // ← THIS prevents input blur before onClick fires
+                  style={{
+                    border: `1px solid ${C.borderHov}`, borderTop: "none",
+                    borderRadius: "0 0 11px 11px",
+                    maxHeight: 300, overflowY: "auto",
+                    boxShadow: "0 12px 32px rgba(0,49,53,0.1)",
+                    background: C.white,
+                  }}
+                >
                   {filteredCourses.map((course, idx) => (
-                    <CourseOption key={course.id} course={course} isLast={idx === filteredCourses.length - 1} onSelect={handleCourseSelect} />
+                    <CourseOption
+                      key={course.id}
+                      course={course}
+                      isLast={idx === filteredCourses.length - 1}
+                      onSelect={handleCourseSelect}
+                    />
                   ))}
                 </div>
               )}
+
               {showDropdown && searchQuery && filteredCourses.length === 0 && (
                 <div style={{
                   border: `1px solid ${C.border}`, borderTop: "none",
@@ -372,7 +373,6 @@ export default function TeacherAttendance() {
         {/* Students view */}
         {currentView === "students" && selectedCourse && (
           <>
-            {/* Selected course pill */}
             <div style={{
               display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between",
               gap: 14, padding: "18px 24px",
@@ -400,7 +400,6 @@ export default function TeacherAttendance() {
               </button>
             </div>
 
-            {/* Stat cards */}
             <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(4, 1fr)" }} className="stat-grid">
               <StatCard title="Total Students" value={students.length}   Icon={Users}        />
               <StatCard title="Trained"         value={trainedCount}       Icon={CheckCircle2} color={trainedCount > 0 ? C.accent : C.text} />
@@ -408,27 +407,17 @@ export default function TeacherAttendance() {
               <StatCard title="Not Trained"     value={untrainedCount}     Icon={AlertCircle}  color={untrainedCount > 0 ? "#dc2626" : C.text} />
             </div>
 
-            {/* Action buttons */}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "center" }}>
-              <ActionBtn
-                variant="warning"
-                onClick={handleTrainStudents}
-                disabled={training || loading}
-              >
+              <ActionBtn variant="warning" onClick={handleTrainStudents} disabled={training || loading}>
                 <Sparkles size={17} />
                 {training ? "Training model…" : "Train Recognition Model"}
               </ActionBtn>
-              <ActionBtn
-                variant="primary"
-                onClick={handleCaptureAttendance}
-                disabled={loading || trainedCount === 0}
-              >
+              <ActionBtn variant="primary" onClick={handleCaptureAttendance} disabled={loading || trainedCount === 0}>
                 <PlayCircle size={17} />
                 Capture Attendance
               </ActionBtn>
             </div>
 
-            {/* Training in-progress banner */}
             {training && (
               <div style={{
                 display: "flex", alignItems: "center", gap: 12,
@@ -450,7 +439,6 @@ export default function TeacherAttendance() {
               </div>
             )}
 
-            {/* Students table */}
             <Card>
               <div style={{
                 padding: "22px 28px 16px",
@@ -502,7 +490,6 @@ export default function TeacherAttendance() {
               )}
             </Card>
 
-            {/* Next steps hint */}
             <div style={{
               padding: "20px 24px", borderRadius: 16,
               background: "rgba(15,164,175,0.05)",
@@ -558,7 +545,7 @@ function CourseOption({ course, isLast, onSelect }: {
     <button
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      onMouseDown={() => onSelect(course)}
+      onClick={() => onSelect(course)}
       style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         width: "100%", textAlign: "left",

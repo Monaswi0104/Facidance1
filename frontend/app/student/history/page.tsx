@@ -451,4 +451,3 @@ function RecordRow({ record, isLast }: { record: any; isLast: boolean }) {
     </tr>
   );
 }
-

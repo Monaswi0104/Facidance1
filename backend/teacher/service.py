@@ -8,6 +8,7 @@ Mirrors the logic in the Next.js teacher API routes.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -91,31 +92,18 @@ def clear_active_session(course_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _hash_dob_password(dob: str) -> str:
-    """
-    Hash a DOB string as the initial student password.
-    Strips separators for consistency: '2004-03-13' → '20040313'
-    """
     cleaned = dob.replace("-", "").replace("/", "").replace(" ", "")
     return bcrypt.hashpw(cleaned.encode(), bcrypt.gensalt()).decode()
 
 
 def _parse_dt(date_str: str) -> datetime:
-    """
-    Parse ISO 8601 datetime strings, including those ending in 'Z'.
-    Python 3.10's fromisoformat() does not support the trailing 'Z';
-    this helper normalises it to '+00:00' before parsing.
-    """
     return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
 
 
 def _make_cuid() -> str:
-    """
-    Generate a cuid-compatible unique ID using stdlib only (no cuid package needed).
-    Format: c + hex-timestamp-ms + random-hex — 25 chars, collision-safe.
-    """
-    ts = format(int(time.time() * 1000), "x")   # hex ms timestamp
-    rand = secrets.token_hex(16)                  # 32 hex chars of randomness
-    return ("c" + ts + rand)[:25]                 # cuid length is 25
+    ts = format(int(time.time() * 1000), "x")
+    rand = secrets.token_hex(16)
+    return ("c" + ts + rand)[:25]
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +111,6 @@ def _make_cuid() -> str:
 # ---------------------------------------------------------------------------
 
 async def get_me(user_id: str) -> dict:
-    """
-    Return teacher profile with department + course list.
-    Mirrors GET /api/teacher/me
-    """
     teacher = await prisma.teacher.find_unique(
         where={"userId": user_id},
         include={"user": True, "department": True, "courses": True},
@@ -147,10 +131,6 @@ async def get_me(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def get_stats(user_id: str) -> dict:
-    """
-    Per-teacher dashboard counts.
-    Mirrors GET /api/teacher/stats
-    """
     teacher = await prisma.teacher.find_unique(where={"userId": user_id})
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -173,14 +153,12 @@ async def get_stats(user_id: str) -> dict:
 
     total_students = len(unique_student_ids)
 
-    # Unique semesters
     semester_rows = await prisma.course.find_many(
         where={"teacherId": teacher_id},
     )
     unique_semesters = {c.semesterId for c in semester_rows}
     total_semesters = len(unique_semesters)
 
-    # Total attendance records for teacher's courses
     total_attendance = 0
     if course_ids:
         total_attendance = await prisma.attendance.count(
@@ -200,11 +178,6 @@ async def get_stats(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def get_hierarchy(user_id: str) -> dict:
-    """
-    Return the full Department → Program → AcademicYear → Semester → Course tree
-    for courses taught by this teacher.
-    Mirrors GET /api/teacher/hierarchy
-    """
     teacher = await prisma.teacher.find_unique(
         where={"userId": user_id},
         include={
@@ -229,7 +202,6 @@ async def get_hierarchy(user_id: str) -> dict:
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher profile not found")
 
-    # Build nested structure using plain dicts (Maps → dicts keyed by id)
     depts: dict[str, dict] = {}
 
     for course in (teacher.courses or []):
@@ -272,7 +244,6 @@ async def get_hierarchy(user_id: str) -> dict:
             {"id": course.id, "name": course.name, "entryCode": course.entryCode}
         )
 
-    # Serialise maps → lists
     def _dept_to_list(d: dict) -> list:
         result = []
         for dept in d.values():
@@ -317,10 +288,6 @@ async def get_hierarchy(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def get_courses(user_id: str) -> list[dict]:
-    """
-    Return all courses taught by this teacher with student count and real session count.
-    Mirrors GET /api/teacher/courses
-    """
     teacher = await prisma.teacher.find_unique(where={"userId": user_id})
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -357,6 +324,8 @@ async def get_courses(user_id: str) -> list[dict]:
         
         active_students = [s for s in (course.students or []) if getattr(s, "status", None) != "graduated"]
 
+        active_students = [s for s in (course.students or []) if getattr(s, "status", None) != "graduated"]
+
         result.append(
             {
                 "id": course.id,
@@ -382,10 +351,6 @@ async def get_courses(user_id: str) -> list[dict]:
 async def get_course_students_for_attendance(
     user_id: str, data: GetStudentsRequest
 ) -> list[dict]:
-    """
-    List students enrolled in a course (for attendance marking UI).
-    Mirrors POST ?operation=get-students
-    """
     course = await prisma.course.find_unique(
         where={"id": data.course_id},
         include={
@@ -419,10 +384,8 @@ async def train_student(
     teacher_id_str: str,
     student_id: str,
     course_id: str,
-    photos_bytes: list[tuple[bytes, str]],  # [(content, filename), ...]
+    photos_bytes: list[tuple[bytes, str]],
 ) -> dict:
-    import httpx
-
     student = await prisma.student.find_first(
         where={
             "id": student_id,
@@ -470,8 +433,6 @@ async def train_student(
 # ---------------------------------------------------------------------------
 
 async def run_training(data) -> dict:
-    import httpx
-
     if not data.course_id:
         raise HTTPException(status_code=400, detail="Course ID required")
 
@@ -504,7 +465,6 @@ async def recognize_faces(
     frames_bytes: list[tuple[bytes, str]],
     auto_submit: bool = False,
 ) -> dict:
-    import httpx
     from datetime import datetime, timezone
 
     if not course_id or not frames_bytes:
@@ -568,10 +528,6 @@ async def recognize_faces(
 # ---------------------------------------------------------------------------
 
 async def submit_attendance(data: SubmitAttendanceRequest) -> dict:
-    """
-    Persist attendance records for a course from recognition results.
-    Mirrors POST ?operation=submit-attendance
-    """
     course_id = data.course_id
     recognition_results = data.recognition_results
     date_str = data.date
@@ -671,10 +627,6 @@ async def _do_submit_attendance(
 # ---------------------------------------------------------------------------
 
 async def get_attendance_history(course_id: str) -> dict:
-    """
-    Return all attendance records for a course, grouped by date.
-    Mirrors GET ?operation=get-attendance-history
-    """
     records = await prisma.attendance.find_many(
         where={"courseId": course_id},
         include={"student": {"include": {"user": True}}},
@@ -802,16 +754,29 @@ def update_manual_mark(course_id: str, student_id: str, is_present: bool) -> dic
         "ai_recognized": list(session["ai"]),
         "manually_marked": list(session["manual"]),
     }
-
-
 # ---------------------------------------------------------------------------
-# Course students (detail view)
+# Course students (detail view) — FIXED: parallel photo fetching
 # ---------------------------------------------------------------------------
+
+async def _fetch_photo_data(client: httpx.AsyncClient, student_id: str) -> dict:
+    """Fetch photo data for a single student. Always returns a safe default on error."""
+    try:
+        resp = await client.get(
+            f"{PYTHON_API_URL}/api/student/{student_id}/photos",
+            timeout=2.0,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return {"hasPhotos": False, "photoCount": 0}
+
 
 async def get_course_students(user_id: str, course_id: str) -> dict:
     """
     Full student list for a course with face-data status.
-    Mirrors GET /api/teacher/courses/[courseId]/students
+    FIX: photo data is now fetched in parallel (asyncio.gather) instead of
+    one-by-one, so the endpoint no longer hangs for large classes.
     """
 
     # 1. Validate course access
@@ -833,7 +798,7 @@ async def get_course_students(user_id: str, course_id: str) -> dict:
     if not course:
         raise HTTPException(status_code=404, detail="Course not found or access denied")
 
-    # 2. Get student IDs (join table)
+    # 2. Get student IDs from the join table
     rows = await prisma.query_raw(
         'SELECT "B" as student_id FROM "_CourseStudents" WHERE "A" = $1',
         course_id
@@ -853,62 +818,82 @@ async def get_course_students(user_id: str, course_id: str) -> dict:
             },
         )
         students = [s for s in students_raw if s.status != "graduated"]
-        
-    # Sort in Python (ORM limitation)
+    # Sort alphabetically in Python
     students = sorted(students, key=lambda s: s.user.name.lower())
 
-    # 3. Build student response
+    if not students:
+        # Fast-path: no students, skip all async work
+        sem = course.semester
+        ay = sem.academicYear if sem else None
+        prog = ay.program if ay else None
+        dept = prog.department if prog else None
+        return {
+            "course": {
+                "id": course.id,
+                "name": course.name,
+                "entryCode": course.entryCode,
+                "semester": {"id": sem.id, "name": sem.name} if sem else None,
+                "academicYear": {"id": ay.id, "name": ay.name} if ay else None,
+                "program": {"id": prog.id, "name": prog.name} if prog else None,
+                "department": {"id": dept.id, "name": dept.name} if dept else None,
+            },
+            "students": [],
+        }
+
+    # 3. Fetch attendance counts (bulk — one query for all students)
+    attendance_counts_raw = await prisma.attendance.find_many(
+        where={
+            "courseId": course_id,
+            "status": True,
+            "studentId": {"in": [s.id for s in students]},
+        },
+    )
+    # Build a map: student_id → count of present records
+    attendance_map: dict[str, int] = {}
+    for rec in attendance_counts_raw:
+        attendance_map[rec.studentId] = attendance_map.get(rec.studentId, 0) + 1
+
+    # 4. Fetch ALL photo data in parallel — this is the critical fix
+    async with httpx.AsyncClient(timeout=2.0) as client:
+        photo_tasks = [_fetch_photo_data(client, s.id) for s in students]
+        photo_results: list[dict] = await asyncio.gather(*photo_tasks)
+
+    # 5. Build student response list
     student_list = []
+    for s, photo_data in zip(students, photo_results):
+        student_list.append(
+            {
+                "id": s.id,
+                "user": {
+                    "name": s.user.name,
+                    "email": s.user.email,
+                },
+                "program": (
+                    {
+                        "id": s.program.id,
+                        "name": s.program.name,
+                        "department": (
+                            {
+                                "id": s.program.department.id,
+                                "name": s.program.department.name,
+                            }
+                            if s.program and s.program.department
+                            else None
+                        ),
+                    }
+                    if s.program
+                    else None
+                ),
+                "faceEmbedding": bool(getattr(s, "faceEmbedding", None)),
+                "hasPhotos": photo_data.get("hasPhotos", False),
+                "photoCount": photo_data.get("photoCount", 0),
+                "_count": {
+                    "attendance": attendance_map.get(s.id, 0),
+                },
+            }
+        )
 
-    async with httpx.AsyncClient(timeout=3.0) as client:
-        for s in students:
-
-            attendance_count = await prisma.attendance.count(
-                where={"studentId": s.id, "courseId": course_id, "status": True}
-            )
-
-            try:
-                resp = await client.get(f"{PYTHON_API_URL}/api/student/{s.id}/photos")
-                if resp.status_code == 200:
-                    photo_data = resp.json()
-                else:
-                    photo_data = {"hasPhotos": False, "photoCount": 0}
-            except Exception:
-                photo_data = {"hasPhotos": False, "photoCount": 0}
-
-            student_list.append(
-                {
-                    "id": s.id,
-                    "user": {
-                        "name": s.user.name,
-                        "email": s.user.email
-                    },
-                    "program": (
-                        {
-                            "id": s.program.id,
-                            "name": s.program.name,
-                            "department": (
-                                {
-                                    "id": s.program.department.id,
-                                    "name": s.program.department.name
-                                }
-                                if s.program and s.program.department
-                                else None
-                            ),
-                        }
-                        if s.program
-                        else None
-                    ),
-                    "faceEmbedding": bool(getattr(s, "faceEmbedding", None)),
-                    "hasPhotos": photo_data["hasPhotos"],
-                    "photoCount": photo_data["photoCount"],
-                    "_count": {
-                        "attendance": attendance_count
-                    },
-                }
-            )
-
-    # 4. Serialize course
+    # 6. Serialize course metadata
     sem = course.semester
     ay = sem.academicYear if sem else None
     prog = ay.program if ay else None
@@ -926,7 +911,7 @@ async def get_course_students(user_id: str, course_id: str) -> dict:
 
     return {
         "course": course_data,
-        "students": student_list
+        "students": student_list,
     }
 
 
@@ -935,10 +920,6 @@ async def get_course_students(user_id: str, course_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def import_students(course_id: str, user_id: str, data: ImportStudentsRequest) -> dict:
-    """
-    Bulk-create or enrol students in a course from parsed CSV data.
-    Mirrors POST /api/teacher/courses/[courseId]/import
-    """
     teacher = await prisma.teacher.find_unique(where={"userId": user_id})
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -1037,11 +1018,6 @@ async def import_students(course_id: str, user_id: str, data: ImportStudentsRequ
 # ---------------------------------------------------------------------------
 
 async def get_teacher_students(user_id: str, course_id: Optional[str] = None) -> list[dict]:
-    """
-    All students enrolled in at least one of this teacher's courses.
-    Optionally filtered to a single course.
-    Mirrors GET /api/teacher/students
-    """
     teacher = await prisma.teacher.find_unique(where={"userId": user_id})
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -1142,10 +1118,6 @@ async def get_report(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> list[dict]:
-    """
-    Per-student attendance summary for a course with optional date range.
-    Mirrors GET /api/teacher/reports
-    """
     teacher = await prisma.teacher.find_unique(where={"userId": user_id})
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -1159,10 +1131,8 @@ async def get_report(
 
     date_filter: dict = {"courseId": course_id}
     if start_date:
-        # FIX: parse 'Z'-suffixed ISO strings and strip tzinfo — DB column is naive
         date_filter.setdefault("timestamp", {})["gte"] = _parse_dt(start_date).replace(tzinfo=None)
     if end_date:
-        # FIX: same — strip tzinfo, then clamp to end of day
         end_dt = _parse_dt(end_date).replace(tzinfo=None).replace(
             hour=23, minute=59, second=59, microsecond=999999
         )
@@ -1197,7 +1167,7 @@ async def get_report(
         name_display = s.user.name
         if s.status == "graduated":
             name_display += " (Graduated)"
-            
+
         student_stats[s.id] = {
             "studentName": name_display,
             "studentEmail": s.user.email,
@@ -1231,11 +1201,6 @@ async def get_report(
 # ---------------------------------------------------------------------------
 
 async def send_credentials(data: SendCredentialsRequest) -> dict:
-    """
-    Email login credentials to a list of newly imported students.
-    Mirrors POST /api/teacher/send-credentials
-    Uses SMTP via environment variables EMAIL_USER / EMAIL_PASS.
-    """
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
@@ -1331,7 +1296,6 @@ async def get_at_risk_students(user_id: str) -> list[dict]:
                     "attendance_rate": pct,
                 })
 
-    # Sort by worst attendance first
     at_risk.sort(key=lambda x: x["attendance_rate"])
     return at_risk
 
@@ -1395,7 +1359,7 @@ async def search_students(user_id: str, query: str, course_id: Optional[str] = N
             },
             "face_embedding": bool(r["faceEmbedding"])
         })
-    
+
     return {"students": students}
 
 

@@ -210,9 +210,11 @@ async def get_departments() -> list[dict]:
         include={
             "_count": {"select": {"programs": True, "teachers": True}}
         },
-        order={"name": "asc"},
+        # order= removed: custom prisma_client does not support it and
+        # generates invalid SQL ("syntax error at or near ORDER").
+        # Sorting is done in Python below instead.
     )
-    return [
+    result = [
         {
             "id": d.id,
             "name": d.name,
@@ -221,6 +223,8 @@ async def get_departments() -> list[dict]:
         }
         for d in depts
     ]
+    result.sort(key=lambda x: x["name"])
+    return result
 
 
 async def create_department(data: CreateDepartmentRequest) -> dict:
@@ -275,12 +279,13 @@ async def delete_department(dept_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def get_programs() -> list[dict]:
+    """Return all programs with their department."""
     progs = await prisma.program.find_many(
         where={"name": {"not": "All Programs"}},
         include={"department": True},
-        order={"name": "asc"},
+        # order= removed: same reason as get_departments above.
     )
-    return [
+    result = [
         {
             "id": p.id,
             "name": p.name,
@@ -289,6 +294,8 @@ async def get_programs() -> list[dict]:
         }
         for p in progs
     ]
+    result.sort(key=lambda x: x["name"])
+    return result
 
 
 async def create_program(data: CreateProgramRequest) -> dict:
@@ -568,7 +575,6 @@ async def get_students() -> dict:
                 }
             }
         },
-        order={"name": "asc"},
     )
 
     result = []
@@ -637,8 +643,11 @@ async def get_students() -> dict:
             }
         )
 
+    result.sort(key=lambda x: x["name"])
+
     programs = await prisma.program.find_many(
-        include={"department": True}, order={"name": "asc"}
+        include={"department": True},
+        # order= removed here too, sorting in Python below.
     )
     program_list = [
         {
@@ -649,6 +658,7 @@ async def get_students() -> dict:
         }
         for p in programs
     ]
+    program_list.sort(key=lambda x: x["name"])
 
     return {"students": result, "programs": program_list}
 

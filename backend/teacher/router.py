@@ -269,6 +269,7 @@ async def clear_active_session(
     return {"success": True}
 
 
+
 @router.get("/attendance/history", summary="Attendance history for a course grouped by date")
 async def attendance_history(
     _: TeacherUser,

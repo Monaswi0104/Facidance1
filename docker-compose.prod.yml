@@ -110,7 +110,9 @@ services:
   student:
     image: ${IMAGE_BASE:-ghcr.io/arijitb17/facidance}-student:latest
     restart: unless-stopped
-    environment: { <<: *python-env }
+    environment:
+      <<: *python-env
+      GROQ_API_KEY: ${GROQ_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,6 +141,7 @@ services:
       NEXT_PUBLIC_ADMIN_API_URL:   ${NEXT_PUBLIC_ADMIN_API_URL}
       NEXT_PUBLIC_TEACHER_API_URL: ${NEXT_PUBLIC_TEACHER_API_URL}
       NEXT_PUBLIC_STUDENT_API_URL: ${NEXT_PUBLIC_STUDENT_API_URL}
+      
     depends_on: [auth, admin, teacher, student]
     networks: [internal]
 
