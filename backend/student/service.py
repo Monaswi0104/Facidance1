@@ -114,7 +114,11 @@ Use the EXACT numbers already provided above — do not recalculate. Keep each s
 
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+        raise HTTPException(
+            status_code=503,
+            detail="AI Tips not available — GROQ_API_KEY is not configured. "
+                   "Get a free key at https://console.groq.com and add it to your .env file."
+        )
 
     client = Groq(api_key=api_key)
 
