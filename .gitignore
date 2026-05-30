@@ -88,3 +88,10 @@ face_embeddings.pkl
 # Temp files
 # =========================
 prisma/temp_schema.prisma
+
+# =========================
+# Local Deployment / Configs
+# =========================
+ecosystem.config.js
+local_nginx.conf
+*.deb
