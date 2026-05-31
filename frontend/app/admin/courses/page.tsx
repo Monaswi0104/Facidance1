@@ -185,14 +185,18 @@ export default function CoursesPage() {
         }
 
         .course-row {
-          display: flex; flex-direction: row;
+          display: flex; flex-direction: row; flex-wrap: wrap;
           align-items: center; gap: 10px;
           padding: 10px 12px; border-radius: 12px;
           border: 1px solid rgba(226,232,240,0.7);
           background: rgba(248,250,252,0.8);
-          transition: all 0.2s ease; min-width: 0;
+          transition: all 0.2s ease; min-width: 0; box-sizing: border-box;
         }
         .course-row:hover { background: #fff; border-color: rgba(15,164,175,0.22); box-shadow: 0 6px 20px rgba(0,49,53,0.08); }
+        .course-actions { display: flex; gap: 6px; flex-shrink: 0; margin-left: auto; }
+        @media (max-width: 540px) {
+          .course-actions { width: 100%; padding-left: 44px; margin-left: 0; margin-top: 2px; box-sizing: border-box; }
+        }
 
         .ci { height: 34px; width: 34px; min-width: 34px; border-radius: 10px; background: ${ICON_GRAD}; display: flex; align-items: center; justify-content: center; }
 
@@ -494,7 +498,7 @@ function CourseRow({ course, teachers, onDelete, onChangeTeacher }: {
             <span className="csem">{[course.academic_year_name, course.semester_name].filter(Boolean).join(" · ") || "—"}</span>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        <div className="course-actions">
           <button
             onClick={(e) => { e.stopPropagation(); setShowReassign((p) => !p); setSelectedTeacher(""); setSearch(""); setDropdownOpen(false); }}
             style={{

@@ -41,7 +41,7 @@ const CARD_GRAD = "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)";
 
 const SESSION_DURATION = 45 * 60 * 1000;
 const CAPTURE_INTERVAL = 2  * 60 * 1000;
-const BASE_SCALE = 1.3; // Always render video 30% larger so pan/tilt work without zooming
+const BASE_SCALE = 1.0; // Render video at normal scale initially
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Student { id: string; name: string; email: string; hasFaceData: boolean }
