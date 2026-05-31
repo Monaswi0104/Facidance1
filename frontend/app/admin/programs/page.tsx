@@ -147,6 +147,11 @@ export default function ProgramsPage() {
 
         .prog-form-grid { display: grid; gap: 12px; grid-template-columns: 1fr 1fr auto; align-items: flex-end; }
         @media (max-width: 700px)  { .prog-form-grid { grid-template-columns: 1fr !important; } }
+
+        @media (max-width: 540px) {
+          .prog-row { flex-direction: column !important; align-items: flex-start !important; }
+          .prog-row-actions { width: 100% !important; margin-top: 8px !important; }
+        }
       `}</style>
 
       {/* Header */}
@@ -464,14 +469,15 @@ function ProgramRow({ program, onClick, onDelete, onReassign }: { program: Progr
     <div
       onClick={onClick}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "14px 18px", borderRadius: 14, border: `1px solid ${hov ? "rgba(15,164,175,0.22)" : "rgba(226,232,240,0.7)"}`, background: hov ? "#fff" : "rgba(248,250,252,0.8)", transition: "all 0.2s ease", boxShadow: hov ? "0 6px 20px rgba(0,49,53,0.08)" : "none", cursor: "pointer" }}
+      className="prog-row"
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "14px 18px", borderRadius: 14, border: `1px solid ${hov ? "rgba(15,164,175,0.22)" : "rgba(226,232,240,0.7)"}`, background: hov ? "#fff" : "rgba(248,250,252,0.8)", transition: "all 0.2s ease", boxShadow: hov ? "0 6px 20px rgba(0,49,53,0.08)" : "none", cursor: "pointer", flexWrap: "wrap" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 0 }}>
         <div style={{ height: 42, width: 42, minWidth: 42, borderRadius: 12, background: ICON_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <BookOpen size={18} color="#fff" />
         </div>
-        <div style={{ minWidth: 0 }}>
-          <p style={{ fontSize: 14, fontWeight: 700, color: C.primary, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{program.name}</p>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: C.primary, margin: 0, overflow: "hidden", textOverflow: "ellipsis", wordBreak: "break-word" }}>{program.name}</p>
           <div style={{ display: "flex", gap: 12, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: C.body }}>
               <Building2 size={11} color="#38bdf8" /> {program.department_name ?? "Unknown department"}
@@ -482,7 +488,7 @@ function ProgramRow({ program, onClick, onDelete, onReassign }: { program: Progr
           </div>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div className="prog-row-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
         <button
           onClick={(e) => { e.stopPropagation(); onReassign(); }}
           style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: hov ? "rgba(15,164,175,0.05)" : "transparent", color: C.secondary, fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.2s ease", flexShrink: 0, whiteSpace: "nowrap" }}

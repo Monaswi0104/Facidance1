@@ -114,6 +114,12 @@ export default function TeachersPage() {
         /* Pending row action buttons: wrap on small screens */
         .pending-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
         @media (max-width: 480px) { .pending-actions { width: 100%; margin-top: 10px; } }
+
+        /* Approved teacher row: stack on mobile */
+        @media (max-width: 540px) {
+          .approved-row { flex-direction: column !important; align-items: flex-start !important; }
+          .approved-row-actions { width: 100% !important; margin-top: 8px !important; }
+        }
       `}</style>
 
       {/* Header */}
@@ -404,7 +410,8 @@ function ApprovedRow({ teacher, departments, onClick, onDelete, onEditDept, acti
     <div
       onClick={!isEditing ? onClick : undefined}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderRadius: 14, border: `1px solid ${hov ? "rgba(15,164,175,0.22)" : "rgba(226,232,240,0.7)"}`, background: hov ? "#fff" : "rgba(248,250,252,0.8)", transition: "all 0.2s ease", boxShadow: hov ? "0 6px 20px rgba(0,49,53,0.08)" : "none", cursor: isEditing ? "default" : "pointer" }}
+      className="approved-row"
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderRadius: 14, border: `1px solid ${hov ? "rgba(15,164,175,0.22)" : "rgba(226,232,240,0.7)"}`, background: hov ? "#fff" : "rgba(248,250,252,0.8)", transition: "all 0.2s ease", boxShadow: hov ? "0 6px 20px rgba(0,49,53,0.08)" : "none", cursor: isEditing ? "default" : "pointer", flexWrap: "wrap" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
         <div style={{ height: 40, width: 40, minWidth: 40, borderRadius: "50%", background: ICON_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -443,7 +450,7 @@ function ApprovedRow({ teacher, departments, onClick, onDelete, onEditDept, acti
       </div>
       
       {!isEditing && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div className="approved-row-actions" style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <button onClick={(e) => { e.stopPropagation(); setIsEditing(true); }} disabled={actionLoading}
             style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 9, border: "1px solid #cbd5e1", background: hov ? "#fff" : "transparent", color: "#475569", fontSize: 12, fontWeight: 600, cursor: actionLoading ? "not-allowed" : "pointer", transition: "all 0.2s ease", flexShrink: 0, whiteSpace: "nowrap" }}>
             <Pencil size={12} /> Edit
