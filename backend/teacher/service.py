@@ -29,6 +29,7 @@ from backend.teacher.schemas import (
     SessionStartRequest,
 )
 import httpx
+from backend.common.cache import cache_get, cache_set, cache_invalidate
 
 PYTHON_API_URL = os.environ.get("PYTHON_API_URL", "http://localhost:8004")
 
@@ -111,6 +112,11 @@ def _make_cuid() -> str:
 # ---------------------------------------------------------------------------
 
 async def get_me(user_id: str) -> dict:
+    cache_key = f"teacher:me:{user_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     teacher = await prisma.teacher.find_unique(
         where={"userId": user_id},
         include={"user": True, "department": True, "courses": True},
@@ -118,12 +124,14 @@ async def get_me(user_id: str) -> dict:
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
 
-    return {
+    result = {
         "id": teacher.id,
         "name": teacher.user.name,
         "department": teacher.department.name if teacher.department else None,
         "courses": [{"id": c.id, "name": c.name} for c in (teacher.courses or [])],
     }
+    await cache_set(cache_key, result, ttl=300)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +139,11 @@ async def get_me(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def get_stats(user_id: str) -> dict:
+    cache_key = f"teacher:stats:{user_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     teacher = await prisma.teacher.find_unique(where={"userId": user_id})
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -165,12 +178,14 @@ async def get_stats(user_id: str) -> dict:
             where={"courseId": {"in": course_ids}}
         )
 
-    return {
+    result = {
         "courses": courses_count,
         "total_students": total_students,
         "total_semesters": total_semesters,
         "total_attendance": total_attendance,
     }
+    await cache_set(cache_key, result, ttl=60)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +193,11 @@ async def get_stats(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def get_hierarchy(user_id: str) -> dict:
+    cache_key = f"teacher:hierarchy:{user_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     teacher = await prisma.teacher.find_unique(
         where={"userId": user_id},
         include={
@@ -280,7 +300,9 @@ async def get_hierarchy(user_id: str) -> dict:
             )
         return result
 
-    return {"departments": _dept_to_list(depts)}
+    result = {"departments": _dept_to_list(depts)}
+    await cache_set(cache_key, result, ttl=300)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +310,11 @@ async def get_hierarchy(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def get_courses(user_id: str) -> list[dict]:
+    cache_key = f"teacher:courses:{user_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     teacher = await prisma.teacher.find_unique(where={"userId": user_id})
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -341,6 +368,7 @@ async def get_courses(user_id: str) -> list[dict]:
             }
         )
 
+    await cache_set(cache_key, result, ttl=120)
     return result
 
 
@@ -606,6 +634,15 @@ async def _do_submit_attendance(
         records.append(rec)
 
     present_count = sum(1 for r in records if r.status)
+
+    # Invalidate cache for this course and all its students
+    await cache_invalidate(
+        f"teacher:stats:{course.teacherId}",
+        f"teacher:courses:{course.teacherId}",
+        f"student:attendance:*:{course_id}",
+        f"student:stats:*",
+        f"student:history:*",
+    )
 
     return {
         "success": True,

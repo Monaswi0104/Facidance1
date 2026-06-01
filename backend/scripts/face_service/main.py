@@ -17,8 +17,9 @@ from contextlib import asynccontextmanager
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -162,12 +163,10 @@ async def process_student(
 # Called by teacher service run_training()
 # ---------------------------------------------------------------------------
 
-@app.post("/api/train", tags=["Training"])
-async def train_model():
+def train_model_task():
     """
-    Walk dataset/ folder, extract ArcFace embeddings for every student,
+    Background task to walk dataset/ folder, extract ArcFace embeddings for every student,
     save face_embeddings.pkl, and update the database.
-    Mirrors the logic in train_faces.py.
     """
     try:
         import albumentations as A
@@ -182,7 +181,8 @@ async def train_model():
         logger.warning("albumentations not installed — augmentation disabled")
 
     if not os.path.exists(DATASET_PATH):
-        raise HTTPException(status_code=404, detail="Dataset folder not found")
+        logger.warning("Dataset folder not found")
+        return
 
     fa = get_face_app()
 
@@ -191,7 +191,8 @@ async def train_model():
         if os.path.isdir(os.path.join(DATASET_PATH, d))
     ]
     if not student_folders:
-        raise HTTPException(status_code=404, detail="No student folders found in dataset/")
+        logger.warning("No student folders found in dataset/")
+        return
 
     face_dict: dict[str, np.ndarray] = {}
     total_images = 0
@@ -243,21 +244,29 @@ async def train_model():
             logger.warning(f"[train] {folder}: no faces detected, skipped")
 
     if not face_dict:
-        raise HTTPException(status_code=422, detail="No valid face embeddings generated")
+        logger.warning("No valid face embeddings generated")
+        return
 
     with open(EMBEDDINGS_FILE, "wb") as f:
         pickle.dump(face_dict, f)
 
     # Optional: update DB embeddings
     _update_db_embeddings(face_dict)
+    
+    logger.info(f"Training completed. Traced {len(face_dict)} students, processed {total_images} images.")
 
-    return {
-        "success": True,
-        "studentsTraced": len(face_dict),
-        "totalImagesProcessed": total_images,
-        "embeddingsFile": EMBEDDINGS_FILE,
-        "students": list(face_dict.keys()),
-    }
+@app.post("/api/train", tags=["Training"])
+async def train_model(background_tasks: BackgroundTasks):
+    """
+    Trigger face recognition model training in the background.
+    """
+    background_tasks.add_task(train_model_task)
+    return JSONResponse(
+        content={
+            "success": True,
+            "message": "Training started in background. It may take a few minutes."
+        }
+    )
 
 
 def _update_db_embeddings(face_dict: dict):

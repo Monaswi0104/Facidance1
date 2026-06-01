@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
@@ -233,12 +233,12 @@ async def process_student(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/train")
-async def train_faces():
-    """Train face recognition model"""
+def train_faces_task():
+    """Train face recognition model in background thread"""
     try:
         if not os.path.exists(DATASET_PATH):
-            raise HTTPException(status_code=400, detail="No dataset found")
+            print("Training failed: No dataset found")
+            return
 
         app_model = get_face_app()  # This will now fail gracefully if onnxruntime issues
         face_dict = {}
@@ -342,16 +342,21 @@ async def train_faces():
         with open(EMBEDDINGS_FILE, "wb") as f:
             pickle.dump(face_dict, f)
 
-        return JSONResponse(
-            content={
-                "success": True,
-                "studentsTrained": len(face_dict),
-                "totalSamples": len(embedding_vectors),
-            }
-        )
+        print(f"Training completed. Students trained: {len(face_dict)}. Total samples: {len(embedding_vectors)}")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Training background task failed: {str(e)}")
+
+@app.post("/api/train")
+async def train_faces(background_tasks: BackgroundTasks):
+    """Trigger face recognition model training in the background"""
+    background_tasks.add_task(train_faces_task)
+    return JSONResponse(
+        content={
+            "success": True,
+            "message": "Training started in background. It may take a few minutes."
+        }
+    )
 
 # --- REPLACED recognize endpoint with digital-zoom + angle crops for small faces ---
 @app.post("/api/recognize")

@@ -95,3 +95,4 @@ prisma/temp_schema.prisma
 ecosystem.config.js
 local_nginx.conf
 *.deb
+deploy.sh

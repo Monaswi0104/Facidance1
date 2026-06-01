@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from asyncpg.exceptions import UniqueViolationError
 
 from backend.common.prisma_client import prisma
+from backend.common.cache import cache_get, cache_set, cache_invalidate
 from backend.admin.schemas import (
     ApproveTeacherRequest,
     CreateCourseRequest,
@@ -75,6 +76,11 @@ async def get_teachers() -> list[dict]:
     and pending (no Teacher record yet).
     Mirrors GET /api/admin/teachers.
     """
+    cache_key = "admin:teachers"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     users = await prisma.user.find_many(
         where={"role": "TEACHER"},
         include={"teacher": {"include": {"department": True}}},
@@ -93,6 +99,7 @@ async def get_teachers() -> list[dict]:
                 "isPending": t is None,
             }
         )
+    await cache_set(cache_key, result, ttl=300)
     return result
 
 
@@ -120,6 +127,7 @@ async def approve_teacher(data: ApproveTeacherRequest) -> dict:
             },
         },
     )
+    await cache_invalidate("admin:*")
     return {
         "message": "Teacher approved successfully",
         "teacher_id": teacher.id,
@@ -151,6 +159,8 @@ async def create_teacher(data: CreateTeacherRequest) -> dict:
         )
     except UniqueViolationError:
         raise HTTPException(status_code=409, detail="Email already registered")
+    
+    await cache_invalidate("admin:*")
     return {"message": "Teacher created successfully", "user_id": user.id}
 
 
@@ -170,6 +180,7 @@ async def update_teacher_department(user_id: str, department_id: str) -> dict:
         where={"id": teacher.id},
         data={"departmentId": department_id}
     )
+    await cache_invalidate("admin:*")
     return {"message": "Teacher department updated successfully"}
 
 
@@ -196,6 +207,7 @@ async def delete_teacher(user_id: str) -> dict:
 
     # Delete the User record
     await prisma.user.delete(where={"id": user_id})
+    await cache_invalidate("admin:*")
     return {"message": "Teacher deleted successfully"}
 
 
@@ -205,6 +217,11 @@ async def delete_teacher(user_id: str) -> dict:
 
 async def get_departments() -> list[dict]:
     """Return all departments with program and teacher counts."""
+    cache_key = "admin:departments"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     depts = await prisma.department.find_many(
         where={"name": {"not": "General"}},
         include={
@@ -224,6 +241,7 @@ async def get_departments() -> list[dict]:
         for d in depts
     ]
     result.sort(key=lambda x: x["name"])
+    await cache_set(cache_key, result, ttl=300)
     return result
 
 
@@ -233,6 +251,7 @@ async def create_department(data: CreateDepartmentRequest) -> dict:
         data={"id": _new_id(), "name": data.name},
         include={"_count": {"select": {"programs": True, "teachers": True}}},
     )
+    await cache_invalidate("admin:*")
     return {
         "id": dept.id,
         "name": dept.name,
@@ -271,6 +290,7 @@ async def delete_department(dept_id: str) -> dict:
 
         deleted = await tx.department.delete(where={"id": dept_id})
 
+    await cache_invalidate("admin:*")
     return {"message": "Department deleted successfully", "id": deleted.id}
 
 
@@ -280,6 +300,11 @@ async def delete_department(dept_id: str) -> dict:
 
 async def get_programs() -> list[dict]:
     """Return all programs with their department."""
+    cache_key = "admin:programs"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     progs = await prisma.program.find_many(
         where={"name": {"not": "All Programs"}},
         include={"department": True},
@@ -295,6 +320,7 @@ async def get_programs() -> list[dict]:
         for p in progs
     ]
     result.sort(key=lambda x: x["name"])
+    await cache_set(cache_key, result, ttl=300)
     return result
 
 
@@ -306,6 +332,7 @@ async def create_program(data: CreateProgramRequest) -> dict:
         data={"id": _new_id(), "name": data.name, "departmentId": data.department_id},
         include={"department": True},
     )
+    await cache_invalidate("admin:*")
     return {
         "id": prog.id,
         "name": prog.name,
@@ -316,6 +343,7 @@ async def create_program(data: CreateProgramRequest) -> dict:
 
 async def delete_program(program_id: str) -> dict:
     await prisma.program.delete(where={"id": program_id})
+    await cache_invalidate("admin:*")
     return {"message": "Program deleted successfully"}
 
 
@@ -329,6 +357,7 @@ async def update_program(program_id: str, data: UpdateProgramRequest) -> dict:
         data={"departmentId": data.department_id},
         include={"department": True},
     )
+    await cache_invalidate("admin:*")
     return {
         "id": prog.id,
         "name": prog.name,
@@ -343,6 +372,11 @@ async def update_program(program_id: str, data: UpdateProgramRequest) -> dict:
 
 async def get_courses() -> list[dict]:
     """Return all courses with full nested relations."""
+    cache_key = "admin:courses"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     courses = await prisma.course.find_many(
         include={
             "teacher": {"include": {"user": True}},
@@ -357,7 +391,9 @@ async def get_courses() -> list[dict]:
             },
         }
     )
-    return [_serialize_course(c) for c in courses]
+    result = [_serialize_course(c) for c in courses]
+    await cache_set(cache_key, result, ttl=300)
+    return result
 
 
 async def create_course(data: CreateCourseRequest) -> dict:
@@ -455,12 +491,14 @@ async def create_course(data: CreateCourseRequest) -> dict:
             },
         },
     )
+    await cache_invalidate("admin:*")
     return _serialize_course(course)
 
 
 async def delete_course(course_id: str) -> dict:
     await prisma.attendance.delete_many(where={"courseId": course_id})
     await prisma.course.delete(where={"id": course_id})
+    await cache_invalidate("admin:*")
     return {"message": "Course deleted successfully"}
 
 
@@ -496,6 +534,7 @@ async def update_course_teacher(course_id: str, teacher_id: str) -> dict:
             },
         },
     )
+    await cache_invalidate("admin:*")
     return _serialize_course(updated)
 
 
@@ -550,6 +589,11 @@ async def get_students() -> dict:
     Return all students with auto-graduation logic.
     Mirrors GET /api/admin/students (including the graduation-check loop).
     """
+    cache_key = "admin:students"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     now = datetime.now(timezone.utc)
     users = await prisma.user.find_many(
         where={"role": "STUDENT"},
@@ -577,7 +621,7 @@ async def get_students() -> dict:
         },
     )
 
-    result = []
+    result_students = []
     for u in users:
         s = u.student
         graduated = False
@@ -600,7 +644,7 @@ async def get_students() -> dict:
 
             graduated = s.status == "graduated"
 
-        result.append(
+        result_students.append(
             {
                 "id": u.id,
                 "name": u.name,
@@ -643,7 +687,7 @@ async def get_students() -> dict:
             }
         )
 
-    result.sort(key=lambda x: x["name"])
+    result_students.sort(key=lambda x: x["name"])
 
     programs = await prisma.program.find_many(
         include={"department": True},
@@ -660,7 +704,9 @@ async def get_students() -> dict:
     ]
     program_list.sort(key=lambda x: x["name"])
 
-    return {"students": result, "programs": program_list}
+    result = {"students": result_students, "programs": program_list}
+    await cache_set(cache_key, result, ttl=300)
+    return result
 
 
 async def update_student(user_id: str, data: UpdateStudentRequest) -> dict:
@@ -683,6 +729,7 @@ async def update_student(user_id: str, data: UpdateStudentRequest) -> dict:
         },
         include={"student": True},
     )
+    await cache_invalidate("admin:*")
     return {"id": user.id, "name": user.name, "email": user.email}
 
 
@@ -695,6 +742,7 @@ async def delete_student(user_id: str) -> dict:
         await db.execute('DELETE FROM "_CourseStudents" WHERE "B" = $1', student.id)
         await prisma.student.delete(where={"id": student.id})
     await prisma.user.delete(where={"id": user_id})
+    await cache_invalidate("admin:*")
     return {"success": True}
 
 
@@ -706,6 +754,7 @@ async def graduate_student(user_id: str) -> dict:
     await prisma.student.update(
         where={"id": student.id}, data={"status": "graduated"}
     )
+    await cache_invalidate("admin:*")
     return {"message": "Student marked as graduated"}
 
 
@@ -717,6 +766,7 @@ async def ungraduate_student(user_id: str) -> dict:
     await prisma.student.update(
         where={"id": student.id}, data={"status": "active"}
     )
+    await cache_invalidate("admin:*")
     return {"message": "Student marked as active"}
 
 
@@ -729,6 +779,11 @@ async def get_stats() -> dict:
     Fast parallel count queries.
     Mirrors GET /api/admin/stats.
     """
+    cache_key = "admin:stats"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     (
         teachers,
         students,
@@ -742,7 +797,7 @@ async def get_stats() -> dict:
         prisma.program.count(),
         prisma.course.count(),
     )
-    return {
+    result = {
         "teachers": teachers,
         "students": students,
         "departments": departments,
@@ -750,6 +805,8 @@ async def get_stats() -> dict:
         "courses": courses,
         "success": True,
     }
+    await cache_set(cache_key, result, ttl=300)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -761,6 +818,11 @@ async def get_analytics_overview() -> dict:
     Aggregate overview metrics for the admin analytics dashboard.
     GET /admin/analytics/overview
     """
+    cache_key = "admin:analytics"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     (
         total_teachers,
         total_students,
@@ -789,7 +851,7 @@ async def get_analytics_overview() -> dict:
         else 0.0
     )
 
-    return {
+    result = {
         "total_users": total_teachers + total_students,
         "total_teachers": total_teachers,
         "total_students": total_students,
@@ -801,6 +863,9 @@ async def get_analytics_overview() -> dict:
         "total_attendance_records": total_attendance,
         "overall_attendance_rate": attendance_rate,
     }
+    await cache_set(cache_key, result, ttl=300)
+    return result
+
 
 
 async def get_attendance_trends() -> dict:

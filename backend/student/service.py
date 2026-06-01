@@ -13,6 +13,7 @@ import os
 import json
 from groq import Groq
 from backend.common.prisma_client import prisma
+from backend.common.cache import cache_get, cache_set, cache_invalidate
 from backend.student.schemas import (
     JoinCourseRequest,
     UpdateProfileRequest,
@@ -209,6 +210,11 @@ async def get_me(user_id: str) -> dict:
     Return the authenticated student's full profile.
     Mirrors GET /api/student/me.
     """
+    cache_key = f"student:me:{user_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     user = await prisma.user.find_unique(
         where={"id": user_id},
         include={
@@ -223,7 +229,7 @@ async def get_me(user_id: str) -> dict:
         raise HTTPException(status_code=404, detail="User not found")
 
     s = user.student
-    return {
+    result = {
         "id": user.id,
         "name": user.name,
         "email": user.email,
@@ -243,6 +249,8 @@ async def get_me(user_id: str) -> dict:
             "face_embedding": s.faceEmbedding is not None,
         } if s else None,
     }
+    await cache_set(cache_key, result, ttl=300)
+    return result
 
 
 async def update_profile(user_id: str, data: UpdateProfileRequest) -> dict:
@@ -263,6 +271,7 @@ async def update_profile(user_id: str, data: UpdateProfileRequest) -> dict:
         where={"id": user_id},
         data=update_data,
     )
+    await cache_invalidate(f"student:me:{user_id}")
     return {"id": user.id, "name": user.name, "email": user.email}
 
 
@@ -271,11 +280,18 @@ async def check_photos(student_id: str) -> dict:
     Check whether a student has a face embedding registered.
     Mirrors GET /api/student/check-photos.
     """
+    cache_key = f"student:photos:{student_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     student = await prisma.student.find_unique(where={"id": student_id})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    return {"has_photos": student.faceEmbedding is not None}
+    result = {"has_photos": student.faceEmbedding is not None}
+    await cache_set(cache_key, result, ttl=300)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +303,11 @@ async def get_stats(user_id: str) -> dict:
     Return the student's course count, attendance %, and total present.
     Mirrors GET /api/student/stats — including the dedup-by-day logic.
     """
+    cache_key = f"student:stats:{user_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     student = await prisma.student.find_unique(
         where={"userId": user_id},
         include={"courses": {"select": {"id": True}}},
@@ -321,11 +342,13 @@ async def get_stats(user_id: str) -> dict:
         else 0.0
     )
 
-    return {
+    result = {
         "total_courses": total_courses,
         "attendance_percentage": attendance_pct,
         "total_present": total_present,
     }
+    await cache_set(cache_key, result, ttl=60)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +360,11 @@ async def list_courses(user_id: str) -> list[dict]:
     Return all courses the student is enrolled in.
     Mirrors GET /api/student/courses.
     """
+    cache_key = f"student:courses:{user_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     student = await prisma.student.find_unique(
         where={"userId": user_id},
         include={
@@ -359,7 +387,9 @@ async def list_courses(user_id: str) -> list[dict]:
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    return [_serialize_course_list(c) for c in (student.courses or [])]
+    result = [_serialize_course_list(c) for c in (student.courses or [])]
+    await cache_set(cache_key, result, ttl=120)
+    return result
 
 
 async def get_course(user_id: str, course_id: str) -> dict:
@@ -422,6 +452,11 @@ async def join_course(user_id: str, data: JoinCourseRequest) -> dict:
         where={"id": course.id},
         data={"students": {"connect": [{"id": student.id}]}},
     )
+    # Invalidate cached course/stats data
+    await cache_invalidate(
+        f"student:courses:{user_id}",
+        f"student:stats:{user_id}",
+    )
     return {"message": "Enrolled successfully", "course_id": course.id, "course_name": course.name}
 
 
@@ -434,6 +469,11 @@ async def leave_course(user_id: str, course_id: str) -> dict:
     await prisma.course.update(
         where={"id": course_id},
         data={"students": {"disconnect": [{"id": student.id}]}},
+    )
+    # Invalidate cached course/stats data
+    await cache_invalidate(
+        f"student:courses:{user_id}",
+        f"student:stats:{user_id}",
     )
     return {"message": "Left course successfully"}
 
@@ -448,6 +488,11 @@ async def get_course_attendance(user_id: str, course_id: str) -> dict:
     Mirrors GET /api/student/courses/[id]/attendance.
     Deduplicates by (course, date) — same logic as stats.
     """
+    cache_key = f"student:attendance:{user_id}:{course_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     student = await prisma.student.find_unique(where={"userId": user_id})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
@@ -471,7 +516,7 @@ async def get_course_attendance(user_id: str, course_id: str) -> dict:
     present = sum(1 for v in seen.values() if v)
     rate = round((present / total) * 100, 1) if total > 0 else 0.0
 
-    return {
+    result = {
         "course_id": course_id,
         "course_name": course.name,
         "total_sessions": total,
@@ -483,6 +528,8 @@ async def get_course_attendance(user_id: str, course_id: str) -> dict:
             for date, status in sorted(seen.items(), reverse=True)
         ],
     }
+    await cache_set(cache_key, result, ttl=60)
+    return result
 
 
 async def get_attendance_history(user_id: str) -> dict:
@@ -490,6 +537,11 @@ async def get_attendance_history(user_id: str) -> dict:
     Full attendance history across all enrolled courses.
     Mirrors GET /api/student/history.
     """
+    cache_key = f"student:history:{user_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
     student = await prisma.student.find_unique(
         where={"userId": user_id},
         include={"courses": True},
@@ -546,7 +598,9 @@ async def get_attendance_history(user_id: str) -> dict:
         s["rate"] = round((s["present"] / t) * 100, 1) if t > 0 else 0.0
         summary.append(s)
 
-    return {"records": deduped, "summary": summary}
+    result = {"records": deduped, "summary": summary}
+    await cache_set(cache_key, result, ttl=60)
+    return result
 
 
 # ---------------------------------------------------------------------------

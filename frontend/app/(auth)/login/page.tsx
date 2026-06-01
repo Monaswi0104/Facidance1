@@ -91,7 +91,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPw,   setShowPw]   = useState(false);
   const [loading,  setLoading]  = useState(false);
-  const [hovBtn,   setHovBtn]   = useState(false);
   const { toasts, toast, removeToast } = useToast();
 
   async function handleLogin(e?: React.FormEvent) {
@@ -383,8 +382,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                onMouseEnter={() => setHovBtn(true)}
-                onMouseLeave={() => setHovBtn(false)}
+                className="submit-btn"
                 style={{
                   width: "100%", padding: "13px 20px",
                   borderRadius: 12, border: "none",
@@ -394,10 +392,6 @@ export default function LoginPage() {
                   cursor: loading ? "not-allowed" : "pointer",
                   display: "flex", alignItems: "center",
                   justifyContent: "center", gap: 8,
-                  boxShadow: !loading && hovBtn ? SHADOW_ACT
-                    : !loading ? "0 8px 24px rgba(15,164,175,0.3)" : "none",
-                  transform: !loading && hovBtn
-                    ? "translateY(-2px) scale(1.01)" : "translateY(0) scale(1)",
                   transition: EASE_ALL,
                   opacity: loading ? 0.7 : 1,
                   marginTop: 4,
@@ -470,6 +464,15 @@ export default function LoginPage() {
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .submit-btn {
+          box-shadow: 0 8px 24px rgba(15,164,175,0.3);
+          transform: translateY(0) scale(1);
+        }
+        .submit-btn:not(:disabled):hover {
+          box-shadow: ${SHADOW_ACT} !important;
+          transform: translateY(-2px) scale(1.01) !important;
+        }
 
         @media (max-width: 768px) {
           .auth-root {
