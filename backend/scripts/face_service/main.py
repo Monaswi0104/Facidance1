@@ -115,14 +115,10 @@ async def process_student(
     Receive 3 photos (front, left, right) for a student, verify a face is
     detectable in each, and persist them to dataset/<studentId>/.
     """
-    import mediapipe as mp
-
     student_dir = os.path.join(DATASET_PATH, studentId)
     os.makedirs(student_dir, exist_ok=True)
 
-    face_mesh = mp.solutions.face_mesh.FaceMesh(
-        static_image_mode=True, max_num_faces=1, refine_landmarks=True
-    )
+    fa = get_face_app()
 
     results = {}
     for pose, upload in [("front", front), ("left", left), ("right", right)]:
@@ -134,9 +130,9 @@ async def process_student(
             raise HTTPException(status_code=400, detail=f"Could not decode {pose} image")
 
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        mesh_result = face_mesh.process(rgb)
+        faces = fa.get(rgb)
 
-        if not mesh_result.multi_face_landmarks:
+        if not faces:
             raise HTTPException(
                 status_code=422,
                 detail=f"No face detected in {pose} photo. Please retake with good lighting.",
@@ -147,7 +143,7 @@ async def process_student(
         results[pose] = "saved"
         logger.info(f"[process-student] {studentId}/{pose}.jpg saved")
 
-    face_mesh.close()
+    _clear_db_embedding(studentId)
 
     return {
         "success": True,
@@ -195,7 +191,17 @@ def train_model_task():
         return
 
     face_dict: dict[str, np.ndarray] = {}
+    last_trained = 0.0
+    if os.path.exists(EMBEDDINGS_FILE):
+        try:
+            with open(EMBEDDINGS_FILE, "rb") as f:
+                face_dict = pickle.load(f)
+            last_trained = os.path.getmtime(EMBEDDINGS_FILE)
+        except Exception:
+            pass
+
     total_images = 0
+    new_face_dict: dict[str, np.ndarray] = {}
 
     for folder in sorted(student_folders):
         person_path = os.path.join(DATASET_PATH, folder)
@@ -204,7 +210,16 @@ def train_model_task():
             if f.lower().endswith((".jpg", ".jpeg", ".png"))
         ]
         if not image_files:
-            logger.warning(f"No images in {folder}, skipping")
+            continue
+
+        needs_training = folder.lower() not in face_dict
+        if not needs_training:
+            for img_name in image_files:
+                if os.path.getmtime(os.path.join(person_path, img_name)) > last_trained:
+                    needs_training = True
+                    break
+
+        if not needs_training:
             continue
 
         person_embeddings: list[np.ndarray] = []
@@ -222,7 +237,6 @@ def train_model_task():
                 person_embeddings.append(face.normed_embedding)
                 total_images += 1
 
-            # Augmentation
             if augmenter is not None:
                 for _ in range(min(3, max(1, 5 - len(image_files)))):
                     try:
@@ -238,36 +252,70 @@ def train_model_task():
             arr = np.array(person_embeddings)
             median_emb = np.median(arr, axis=0)
             median_emb = median_emb / np.linalg.norm(median_emb)
+            
             face_dict[folder.lower()] = median_emb
+            new_face_dict[folder.lower()] = median_emb
             logger.info(f"[train] {folder}: {len(person_embeddings)} samples → embedding saved")
         else:
             logger.warning(f"[train] {folder}: no faces detected, skipped")
 
-    if not face_dict:
-        logger.warning("No valid face embeddings generated")
-        return
+    if not new_face_dict:
+        logger.info("No new or updated students to train. Skipped.")
+        return {
+            "trained_count": 0,
+            "total_images": 0,
+            "message": "All students are already trained. No new training needed.",
+        }
 
     with open(EMBEDDINGS_FILE, "wb") as f:
         pickle.dump(face_dict, f)
 
-    # Optional: update DB embeddings
-    _update_db_embeddings(face_dict)
-    
-    logger.info(f"Training completed. Traced {len(face_dict)} students, processed {total_images} images.")
+    _update_db_embeddings(new_face_dict)
+    msg = f"Successfully trained {len(new_face_dict)} student(s) from {total_images} images."
+    logger.info(f"Training completed. {msg}")
+    return {
+        "trained_count": len(new_face_dict),
+        "total_images": total_images,
+        "message": msg,
+    }
 
 @app.post("/api/train", tags=["Training"])
-async def train_model(background_tasks: BackgroundTasks):
+async def train_model():
     """
-    Trigger face recognition model training in the background.
+    Run face recognition model training synchronously and return results.
+    Incremental training is fast — only new/updated students are processed.
     """
-    background_tasks.add_task(train_model_task)
-    return JSONResponse(
-        content={
-            "success": True,
-            "message": "Training started in background. It may take a few minutes."
-        }
-    )
+    import asyncio
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, train_model_task)
+    if result is None:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": "Training failed — check dataset folder."},
+        )
+    return JSONResponse(content={"success": True, **result})
 
+
+def _clear_db_embedding(student_id: str):
+    """Null out the embedding so the student shows as untrained again."""
+    try:
+        import psycopg2
+        from dotenv import load_dotenv
+        load_dotenv()
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            return
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE "Student" SET "faceEmbedding" = NULL WHERE id = %s',
+            (student_id,)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to clear DB embedding for {student_id}: {e}")
 
 def _update_db_embeddings(face_dict: dict):
     """Best-effort DB update — failures are logged, not raised."""

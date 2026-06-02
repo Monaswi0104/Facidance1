@@ -287,7 +287,7 @@ export const teacherAttendanceApi = {
   },
 
   runTraining: (courseId: string) =>
-    apiFetch<{ success: boolean; message: string; results: unknown }>(
+    apiFetch<{ success: boolean; message: string; trained_count: number; total_images: number; results?: unknown }>(
       "/teacher/attendance/run-training",
       {
         method: "POST",

@@ -447,6 +447,13 @@ async def train_student(
 
         result = resp.json()
 
+    # Clear the old face embedding so the UI shows this student as "Pending"
+    # until the teacher retrains the model with the new photos.
+    await prisma.student.update(
+        where={"id": student_id},
+        data={"faceEmbedding": None},
+    )
+
     return {
         "success": True,
         "student_id": student_id,
@@ -478,7 +485,9 @@ async def run_training(data) -> dict:
 
     return {
         "success": True,
-        "message": "Training completed successfully",
+        "message": result.get("message", "Training completed successfully"),
+        "trained_count": result.get("trained_count", 0),
+        "total_images": result.get("total_images", 0),
         "results": result,
     }
 

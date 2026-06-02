@@ -99,6 +99,7 @@ async def get_course_students(
     return await service.get_course_students(teacher["id"], course_id)
 
 
+
 @router.delete(
     "/courses/{course_id}/students",
     summary="Remove (unenrol) a student from a course",
