@@ -26,21 +26,19 @@ Facidance is an AI-powered face recognition attendance system designed for unive
 - **AI/CV:** InsightFace, OpenCV, NumPy
 - **LLM Integration:** Groq (Llama-3.1-8b-instant) for personalized student advice
 
-### Infrastructure & Deployment
-- **Process Manager:** PM2 (runs the frontend and all 5 backend microservices locally)
+### Infrastructure
 - **Containers:** Docker (PostgreSQL database)
-- **Networking:** Cloudflare Tunnels (exposing the local application to `facidance.xyz`)
+- **API Gateway/Routing:** Next.js API Routes (proxies requests to the respective microservices)
 
 ## Architecture
 
-The system consists of the following PM2-managed services:
-1. `facidance-frontend`: Next.js UI (Port 3000)
-2. `facidance-auth`: Authentication & JWT issuance (Port 8000)
-3. `facidance-admin`: Administrator API (Port 8001)
-4. `facidance-teacher`: Teacher API (Port 8002)
-5. `facidance-student`: Student API (Port 8003)
-6. `facidance-face`: Core computer vision & model training API (Port 8004)
-7. `facidance-tunnel`: Cloudflare tunnel daemon
+The backend is split into 5 distinct FastAPI microservices:
+1. **Frontend:** Next.js UI (Port 3000)
+2. **Auth Service:** `backend.auth.main:app` (Port 8000)
+3. **Admin Service:** `backend.admin.main:app` (Port 8001)
+4. **Teacher Service:** `backend.teacher.main:app` (Port 8002)
+5. **Student Service:** `backend.student.main:app` (Port 8003)
+6. **Face Service:** `backend.scripts.face_service.main:app` (Port 8004)
 
 ## Local Setup & Development
 
@@ -48,7 +46,6 @@ The system consists of the following PM2-managed services:
 - Node.js (v18+)
 - Python (3.10+)
 - Docker & Docker Compose
-- PM2 (`npm install -g pm2`)
 
 ### 1. Database Setup
 Start the PostgreSQL database using Docker:
@@ -66,16 +63,38 @@ Ensure the following `.env` files are configured:
 - Root `.env`: Contains `DATABASE_URL` and `GROQ_API_KEY`.
 - Frontend `.env.local`: Contains API routing URLs.
 
-### 3. Start the Application
-You can start all microservices and the frontend simultaneously using PM2:
+### 3. Start the Backend Microservices
+Open a separate terminal for each microservice and run the following commands from the root directory:
+
 ```bash
-pm2 start ecosystem.config.js
+source venv/bin/activate
+
+# Auth
+uvicorn backend.auth.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Admin
+uvicorn backend.admin.main:app --host 0.0.0.0 --port 8001 --reload
+
+# Teacher
+uvicorn backend.teacher.main:app --host 0.0.0.0 --port 8002 --reload
+
+# Student
+uvicorn backend.student.main:app --host 0.0.0.0 --port 8003 --reload
+
+# Face Recognition Service
+uvicorn backend.scripts.face_service.main:app --host 0.0.0.0 --port 8004 --reload
 ```
-To ensure the application starts automatically on system reboot:
+
+### 4. Start the Frontend
+In a new terminal, navigate to the frontend directory and start the Next.js development server:
+
 ```bash
-pm2 save
-pm2 startup
+cd frontend
+npm install
+npm run dev
 ```
+
+The application will now be accessible at `http://localhost:3000`.
 
 ## Contributing
 When contributing, ensure that all new endpoints are added to their respective microservice router and tested for async non-blocking execution.
