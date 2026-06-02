@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 import os
 import json
-from groq import Groq
+from groq import AsyncGroq
 from backend.common.prisma_client import prisma
 from backend.common.cache import cache_get, cache_set, cache_invalidate
 from backend.student.schemas import (
@@ -121,9 +121,9 @@ Use the EXACT numbers already provided above — do not recalculate. Keep each s
                    "Get a free key at https://console.groq.com and add it to your .env file."
         )
 
-    client = Groq(api_key=api_key)
+    client = AsyncGroq(api_key=api_key)
 
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
             {
