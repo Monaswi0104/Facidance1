@@ -391,18 +391,18 @@ function CourseDetailsModal({ course, onClose }: {
     <div style={{
       position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999,
       display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
-      animation: "fadeIn 0.2s ease"
-    }} onClick={(e) => e.stopPropagation()}>
+    }} onClick={onClose}>
       <style>{`
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        @keyframes modalIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15,23,42,0.4)", backdropFilter: "blur(4px)" }} onClick={onClose} />
-      <div style={{
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15,23,42,0.45)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", animation: "fadeIn 0.2s ease forwards", willChange: "opacity" }} />
+      <div onClick={(e) => e.stopPropagation()} style={{
         position: "relative", width: "100%", maxWidth: 420,
         background: "#fff", borderRadius: 24,
         boxShadow: "0 20px 40px rgba(0,49,53,0.15)", overflow: "hidden",
-        animation: "modalIn 0.3s cubic-bezier(.22,.68,0,1.2)"
+        animation: "modalIn 0.25s cubic-bezier(.2,.8,.4,1) forwards",
+        willChange: "transform, opacity",
       }}>
         <div style={{ padding: "24px 24px 20px", display: "flex", alignItems: "center", gap: 16, borderBottom: "1px solid rgba(226,232,240,0.6)", background: "linear-gradient(180deg, rgba(248,250,252,0.6) 0%, #fff 100%)" }}>
           <div style={{ height: 48, width: 48, minWidth: 48, borderRadius: 14, background: ICON_GRAD, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 16px rgba(15,164,175,0.25)" }}>
