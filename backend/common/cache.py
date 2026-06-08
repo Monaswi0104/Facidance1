@@ -34,7 +34,7 @@ logger = logging.getLogger("cache")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # Default TTL in seconds (2 minutes — good balance for attendance data)
-DEFAULT_TTL = 120
+DEFAULT_TTL = 600
 
 _pool: redis.Redis | None = None
 

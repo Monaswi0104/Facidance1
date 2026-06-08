@@ -405,14 +405,12 @@ async def recognize_faces(
             logger.warning(f"[recognize] Frame {idx} could not be decoded, skipping")
             continue
 
-        # Try original + brightness-enhanced
         face_candidates: list = []
-        for variant in [img, _enhance(img)]:
-            try:
-                detected = fa.get(cv2.cvtColor(variant, cv2.COLOR_BGR2RGB))
-                face_candidates.extend(detected)
-            except Exception as e:
-                logger.debug(f"Detection error on variant: {e}")
+        try:
+            detected = fa.get(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            face_candidates.extend(detected)
+        except Exception as e:
+            logger.debug(f"Detection error: {e}")
 
         # Deduplicate overlapping bboxes (IoU > 0.7)
         unique_faces = _deduplicate_faces(face_candidates)

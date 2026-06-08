@@ -316,20 +316,38 @@ export default function AttendanceCapturePage() {
 
   function normalizeResult(result: Record<string, unknown>): RecognitionResult {
     const rawRec = (result.recognizedStudents as unknown[]) || [];
-    const normalized: RecognitionStudent[] = rawRec.map((item) => {
-      if (!item) return { id: "unknown", name: "unknown", email: "" };
+    const validStudents: RecognitionStudent[] = [];
+
+    for (const item of rawRec) {
+      if (!item) continue;
+      
+      let found: Student | undefined;
+      
       if (typeof item === "string") {
-        const found = students.find((s) => s.id === item || s.name.toLowerCase() === item.toLowerCase());
-        return found ? { id: found.id, name: found.name, email: found.email } : { id: item, name: item, email: "" };
+        found = students.find((s) => s.id === item || s.name.toLowerCase() === item.toLowerCase());
+      } else {
+        const obj = item as Record<string, unknown>;
+        for (const cand of [obj.id, obj.studentId, obj.name].filter(Boolean)) {
+          found = students.find((s) => s.id === String(cand) || s.name.toLowerCase() === String(cand).toLowerCase());
+          if (found) break;
+        }
       }
-      const obj = item as Record<string, unknown>;
-      for (const cand of [obj.id, obj.studentId, obj.name].filter(Boolean)) {
-        const found = students.find((s) => s.id === String(cand) || s.name.toLowerCase() === String(cand).toLowerCase());
-        if (found) return { id: found.id, name: found.name, email: found.email };
+
+      // Only include students who are actually enrolled in this course
+      if (found) {
+        // Prevent duplicate entries in the same batch
+        if (!validStudents.some(s => s.id === found!.id)) {
+          validStudents.push({ id: found.id, name: found.name, email: found.email });
+        }
       }
-      return { id: String(obj.id ?? ""), name: String(obj.name ?? obj.id ?? ""), email: String(obj.email ?? "") };
-    });
-    return { totalFaces: Number(result.totalFaces ?? normalized.length), recognizedStudents: normalized, averageConfidence: typeof result.averageConfidence === "number" ? result.averageConfidence : 0, detections: [] };
+    }
+
+    return { 
+      totalFaces: Number(result.totalFaces ?? validStudents.length), 
+      recognizedStudents: validStudents, 
+      averageConfidence: typeof result.averageConfidence === "number" ? result.averageConfidence : 0, 
+      detections: [] 
+    };
   }
 
   async function startSession() {
@@ -711,38 +729,75 @@ export default function AttendanceCapturePage() {
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
       gap: 16, padding: 24,
     }}>
-      <div style={{
-        height: 56, width: 56, borderRadius: 16,
-        background: "rgba(255,255,255,0.1)",
-        border: "1px solid rgba(255,255,255,0.15)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>
-        <Camera size={24} color="#fff" />
-      </div>
-      <div style={{ textAlign: "center" }}>
-        <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>
-          Ready to capture attendance
-        </p>
-        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 6, lineHeight: 1.6, maxWidth: 280 }}>
-          45-minute session · auto-capture every 2 min · cumulative recognition
-        </p>
-      </div>
-      <button
-        onClick={startSession}
-        disabled={trainedCount === 0}
-        style={{
-          display: "inline-flex", alignItems: "center", gap: 8,
-          padding: "12px 24px", borderRadius: 12, fontSize: 14, fontWeight: 700,
-          background: trainedCount === 0 ? "rgba(255,255,255,0.1)" : ICON_GRAD,
-          color: "#fff", border: "none", cursor: trainedCount === 0 ? "not-allowed" : "pointer",
-          boxShadow: trainedCount > 0 ? "0 8px 24px rgba(15,164,175,0.4)" : "none",
-          opacity: trainedCount === 0 ? 0.5 : 1,
-        }}
-      >
-        <Play size={17} /> Start 45-Min Session
-      </button>
-      {trainedCount === 0 && (
-        <p style={{ fontSize: 11.5, color: "rgba(255,100,100,0.9)" }}>⚠️ No trained students. Train the model first.</p>
+      {recognizedCount > 0 ? (
+        /* Session just ended — show "Session Complete" instead of "Start again" */
+        <>
+          <div style={{
+            height: 56, width: 56, borderRadius: 16,
+            background: "rgba(16,185,129,0.2)",
+            border: "1px solid rgba(16,185,129,0.35)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <CheckCircle2 size={24} color="#10b981" />
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>
+              Session Complete
+            </p>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 6, lineHeight: 1.6, maxWidth: 280 }}>
+              {recognizedCount} student{recognizedCount !== 1 ? "s" : ""} recognized · Review and submit attendance on the right panel
+            </p>
+          </div>
+          <button
+            onClick={startSession}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              padding: "10px 20px", borderRadius: 12, fontSize: 13, fontWeight: 600,
+              background: "rgba(255,255,255,0.1)",
+              color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.15)",
+              cursor: "pointer", marginTop: 4,
+            }}
+          >
+            <Play size={15} /> Start New Session
+          </button>
+        </>
+      ) : (
+        /* No results yet — normal start screen */
+        <>
+          <div style={{
+            height: 56, width: 56, borderRadius: 16,
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(255,255,255,0.15)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Camera size={24} color="#fff" />
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>
+              Ready to capture attendance
+            </p>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 6, lineHeight: 1.6, maxWidth: 280 }}>
+              45-minute session · auto-capture every 2 min · cumulative recognition
+            </p>
+          </div>
+          <button
+            onClick={startSession}
+            disabled={trainedCount === 0}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              padding: "12px 24px", borderRadius: 12, fontSize: 14, fontWeight: 700,
+              background: trainedCount === 0 ? "rgba(255,255,255,0.1)" : ICON_GRAD,
+              color: "#fff", border: "none", cursor: trainedCount === 0 ? "not-allowed" : "pointer",
+              boxShadow: trainedCount > 0 ? "0 8px 24px rgba(15,164,175,0.4)" : "none",
+              opacity: trainedCount === 0 ? 0.5 : 1,
+            }}
+          >
+            <Play size={17} /> Start 45-Min Session
+          </button>
+          {trainedCount === 0 && (
+            <p style={{ fontSize: 11.5, color: "rgba(255,100,100,0.9)" }}>⚠️ No trained students. Train the model first.</p>
+          )}
+        </>
       )}
     </div>
   )}
@@ -924,7 +979,8 @@ export default function AttendanceCapturePage() {
                         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto", paddingRight: 4 }}>
                           {Array.from(allPresentSet).map((sid) => {
                             const s = students.find((st) => st.id === sid);
-                            if (!s) return null;
+                            const displayName = s?.name || sid;
+                            const displayEmail = s?.email || "";
                             const isManual = manuallyMarked.has(sid) && !allRecognizedStudents.has(sid);
                             return (
                               <div key={sid} style={{
@@ -934,8 +990,8 @@ export default function AttendanceCapturePage() {
                                 border: `1px solid ${isManual ? "rgba(16,185,129,0.15)" : C.borderHov}`,
                               }}>
                                 <div>
-                                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.name}</p>
-                                  <p style={{ fontSize: 11, color: C.body, marginTop: 2 }}>{s.email}</p>
+                                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{displayName}</p>
+                                  {displayEmail && <p style={{ fontSize: 11, color: C.body, marginTop: 2 }}>{displayEmail}</p>}
                                 </div>
                                 <span style={{
                                   padding: "3px 10px", borderRadius: 20,

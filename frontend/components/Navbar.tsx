@@ -15,7 +15,7 @@ import {
   LayoutDashboard, BookOpen, CheckSquare,
   Users, BarChart3, LogOut, Menu, X,
   ClipboardList, User, GraduationCap, Building2,
-  BookMarked, Sparkles, Loader2,
+  BookMarked, Sparkles, Loader2, Terminal,
 } from "lucide-react";
 
 // ─── Design tokens ──────────────────────────────────────────────────────────────
@@ -48,6 +48,7 @@ const ADMIN_NAV = [
   { href: "/admin/programs",    label: "Programs",    Icon: BookMarked      },
   { href: "/admin/courses",     label: "Courses",     Icon: BookOpen        },
   { href: "/admin/students",    label: "Students",    Icon: GraduationCap   },
+  { href: "/admin/logs",        label: "System Logs", Icon: Terminal        },
 ];
 
 type NavItem = { href: string; label: string; Icon: React.ElementType };
@@ -449,6 +450,7 @@ function NavbarShell({ nav, homeHref, displayName, subtitle, children }: ShellPr
     href === homeHref ? pathname === homeHref : pathname.startsWith(href);
 
   function handleSignOut() {
+    if (!window.confirm("Are you sure you want to sign out?")) return;
     localStorage.removeItem("token");
     router.push("/login");
   }
