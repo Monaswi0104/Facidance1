@@ -298,7 +298,7 @@ function AlumniDashboard({ name, totalCourses, totalPresent, attendancePct }: {
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             margin: 0,
           }}>
-            Congratulations, {name}! 🎓
+            Congratulations, {name}!
           </h1>
         </div>
 
@@ -527,7 +527,7 @@ export default function StudentDashboard() {
 >
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 800, color: C.text, letterSpacing: "-0.03em", lineHeight: 1.1 }}>
-            Welcome back 👋
+            Welcome back
           </h1>
           <p style={{ fontSize: 14, color: C.body, marginTop: 6, lineHeight: 1.5 }}>
             Here's an overview of your attendance and courses.
@@ -653,7 +653,7 @@ export default function StudentDashboard() {
                   padding: "10px 12px", borderRadius: 10,
                   background: "#f8fafc", border: `1px solid ${C.border}`,
                 }}>
-                  <span style={{ fontSize: 14, marginTop: -1 }}>💡</span>
+                  <span style={{ fontSize: 14, marginTop: -1 }}></span>
                   <span style={{ fontSize: 12, color: C.body, lineHeight: 1.5 }}>{tip}</span>
                 </div>
               ))}

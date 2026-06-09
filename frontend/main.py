@@ -65,7 +65,7 @@ def get_face_app():
         try:
             # Import here to avoid startup errors
             from insightface.app import FaceAnalysis
-            face_app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
+            face_app = FaceAnalysis(name='buffalo_l', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
             # prepare may vary depending on insightface version
             try:
                 face_app.prepare(ctx_id=0, det_size=(640, 640))

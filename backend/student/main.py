@@ -16,6 +16,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from backend.common.prisma_client import connect, disconnect
 from backend.student.router import router
+from prometheus_fastapi_instrumentator import Instrumentator
 
 
 @asynccontextmanager
@@ -47,6 +48,9 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.include_router(router)
+
+# Enable Prometheus metrics
+Instrumentator().instrument(app).expose(app)
 
 
 @app.get("/health", tags=["Health"])

@@ -41,3 +41,8 @@ albumentations
 # Caching
 # ---------------------------
 redis
+
+# ---------------------------
+# Monitoring
+# ---------------------------
+prometheus-fastapi-instrumentator

@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.common.prisma_client import connect, disconnect
 from backend.auth.router import router
+from prometheus_fastapi_instrumentator import Instrumentator
 
 
 @asynccontextmanager
@@ -42,6 +43,9 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+# Enable Prometheus metrics
+Instrumentator().instrument(app).expose(app)
 
 
 @app.get("/health", tags=["Health"])

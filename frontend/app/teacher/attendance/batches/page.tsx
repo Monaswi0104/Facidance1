@@ -1044,7 +1044,7 @@ export default function AttendanceCapturePage() {
                         )}
                         {sessionActive && recognizedCount > 0 && (
                           <p style={{ fontSize: 11.5, textAlign: "center", color: C.body }}>
-                            💡 You can submit now or wait until the session ends
+                            You can submit now or wait until the session ends
                           </p>
                         )}
                       </div>
@@ -1134,7 +1134,7 @@ export default function AttendanceCapturePage() {
                 {allRecognizedStudents.size > 0 && (
                   <div style={{ marginBottom: 20 }}>
                     <p style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
-                      🤖 AI Recognized ({allRecognizedStudents.size})
+                      AI Recognized ({allRecognizedStudents.size})
                     </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {Array.from(allRecognizedStudents).map((sid) => {

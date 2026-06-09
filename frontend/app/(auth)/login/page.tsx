@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { Eye, EyeOff, ArrowRight, Sparkles, GraduationCap, Shield, Zap } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, Sparkles, GraduationCap, Shield, Zap, Info } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/lib/useToast";
 import { ToastContainer } from "@/components/ToastContainer";
@@ -167,6 +167,8 @@ export default function LoginPage() {
             alt="Department of Information Technology, Gauhati University"
             fill
             priority
+            quality={70}
+            sizes="(max-width: 768px) 100vw, 50vw"
             style={{ objectFit: "cover", objectPosition: "center top" }}
           />
 
@@ -389,6 +391,24 @@ export default function LoginPage() {
                   </button>
                 }
               />
+              
+              <div style={{ 
+                marginTop: -10, 
+                fontSize: 12, 
+                color: C.accent, 
+                lineHeight: 1.4,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                background: "rgba(15,164,175,0.06)",
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: "1px solid rgba(15,164,175,0.15)"
+              }}>
+                <Info size={14} style={{ flexShrink: 0 }} />
+                <span>For students, your password is your DOB in <strong>YYYY/MM/DD</strong> format.</span>
+              </div>
 
               <button
                 type="submit"

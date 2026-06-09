@@ -504,7 +504,7 @@ export default function TeacherAttendance() {
               background: "rgba(15,164,175,0.05)",
               border: `1px solid ${C.borderHov}`,
             }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: C.primary, marginBottom: 10 }}>📋 Next Steps</p>
+              <p style={{ fontSize: 13, fontWeight: 700, color: C.primary, marginBottom: 10 }}>Next Steps</p>
               <ol style={{ paddingLeft: 18, margin: 0, display: "flex", flexDirection: "column", gap: 6 }}>
                 {trainedCount === 0 ? (
                   <>

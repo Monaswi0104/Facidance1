@@ -171,6 +171,8 @@ export default function RegisterTeacherPage() {
             alt="Department of Information Technology, Gauhati University"
             fill
             priority
+            quality={70}
+            sizes="(max-width: 768px) 100vw, 50vw"
             style={{ objectFit: "cover", objectPosition: "center top" }}
           />
 
