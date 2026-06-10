@@ -13,14 +13,38 @@ import os
 import pickle
 import shutil
 import sys
+import time
 from contextlib import asynccontextmanager
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, BackgroundTasks
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
+
+# ---------------------------------------------------------------------------
+# Import all metrics from the central registry
+# ---------------------------------------------------------------------------
+from backend.common.metrics import (
+    FACE_MODEL_LOAD_DURATION_SECONDS,
+    FACE_MODEL_LOAD_TOTAL,
+    FACE_PHOTOS_OP_DURATION_SECONDS,
+    FACE_PHOTOS_OPS_TOTAL,
+    FACE_PROCESS_STUDENT_OP_DURATION_SECONDS,
+    FACE_PROCESS_STUDENT_OPS_TOTAL,
+    FACE_RECOGNIZE_CONFIDENCE,
+    FACE_RECOGNIZE_FACES_DETECTED_TOTAL,
+    FACE_RECOGNIZE_FRAMES_PROCESSED_TOTAL,
+    FACE_RECOGNIZE_OP_DURATION_SECONDS,
+    FACE_RECOGNIZE_OPS_TOTAL,
+    FACE_RECOGNIZE_STUDENTS_MATCHED_TOTAL,
+    FACE_TRAIN_DB_UPDATE_TOTAL,
+    FACE_TRAIN_IMAGES_PROCESSED_TOTAL,
+    FACE_TRAIN_OP_DURATION_SECONDS,
+    FACE_TRAIN_OPS_TOTAL,
+    FACE_TRAIN_STUDENTS_PROCESSED_TOTAL,
+    FACE_UNHANDLED_ERRORS_TOTAL,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -40,18 +64,28 @@ EMBEDDINGS_FILE = os.path.join(BASE_DIR, "backend", "face_embeddings.pkl")
 _face_app = None
 
 def get_face_app():
+    """Return a FaceAnalysis instance, loading once."""
     global _face_app
     if _face_app is None:
-        from insightface.app import FaceAnalysis
-        _face_app = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
-        _face_app.prepare(ctx_id=0, det_size=(640, 640))
-        logger.info("InsightFace model loaded")
+        t0 = time.perf_counter()
+        try:
+            from insightface.app import FaceAnalysis
+            fa = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+            fa.prepare(ctx_id=0, det_size=(640, 640))
+            _face_app = fa
+            FACE_MODEL_LOAD_TOTAL.labels(status="success").inc()
+            logger.info("InsightFace model loaded (det_size=(640, 640))")
+        except Exception:
+            FACE_MODEL_LOAD_TOTAL.labels(status="error").inc()
+            raise
+        finally:
+            FACE_MODEL_LOAD_DURATION_SECONDS.observe(time.perf_counter() - t0)
     return _face_app
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Pre-warm model on startup so first request isn't slow
+    # Pre-warm primary model on startup so first request isn't slow
     try:
         get_face_app()
     except Exception as e:
@@ -66,16 +100,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+Instrumentator(
+    should_group_status_codes=False,
+    excluded_handlers=["/health", "/metrics"],
+).instrument(app).expose(app, include_in_schema=False)
+
+# ---------------------------------------------------------------------------
+# CORS — allow the frontend origin AND a wildcard fallback so browsers don't
+# block the request before it even reaches the endpoint.
+# ---------------------------------------------------------------------------
+_frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.environ.get("FRONTEND_URL", "http://localhost:3000")],
-    allow_credentials=True,
+    allow_origins=[_frontend_url, "*"],   # wildcard covers all origins in dev/prod
+    allow_credentials=False,              # must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Enable Prometheus metrics
-Instrumentator().instrument(app).expose(app)
 
 # ---------------------------------------------------------------------------
 # Health
@@ -85,22 +127,87 @@ Instrumentator().instrument(app).expose(app)
 async def health():
     return {"status": "ok", "service": "face-recognition", "port": 8000}
 
+
+# ---------------------------------------------------------------------------
+# Preprocessing helpers
+# ---------------------------------------------------------------------------
+
+def _preprocess_for_detection(img: np.ndarray) -> list[np.ndarray]:
+    """
+    Return a list of image variants to attempt detection on.
+    Includes: original, CLAHE-enhanced, brightness+contrast boost.
+    Helps detect faces at distance or in poor lighting.
+    """
+    variants = [img]
+
+    # CLAHE — equalises local contrast, best for dim/backlit distant faces
+    try:
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l_chan, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        l_eq = clahe.apply(l_chan)
+        lab_eq = cv2.merge([l_eq, a, b])
+        variants.append(cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR))
+    except Exception:
+        pass
+
+    # PIL brightness + contrast + sharpness boost
+    variants.append(_enhance(img))
+
+    return variants
+
+
+def _detect_multiscale(img_rgb: np.ndarray) -> list:
+    """
+    Try multiple image variants with the single loaded model.
+    """
+    all_faces: list = []
+    fa = get_face_app()
+    for variant_bgr in _preprocess_for_detection(cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)):
+        variant_rgb = cv2.cvtColor(variant_bgr, cv2.COLOR_BGR2RGB)
+        try:
+            detected = fa.get(variant_rgb)
+            all_faces.extend(detected)
+        except Exception as e:
+            logger.debug(f"Detection error: {e}")
+    return _deduplicate_faces(all_faces)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/student/{student_id}/photos
+# ---------------------------------------------------------------------------
+
 @app.get("/api/student/{student_id}/photos")
 async def get_student_photos(student_id: str):
-    student_dir = os.path.join(DATASET_PATH, student_id)
+    t0 = time.perf_counter()
+    try:
+        student_dir = os.path.join(DATASET_PATH, student_id)
 
-    if not os.path.exists(student_dir):
-        return {"hasPhotos": False, "photoCount": 0}
+        if not os.path.exists(student_dir):
+            FACE_PHOTOS_OPS_TOTAL.labels(status="success").inc()
+            return {"hasPhotos": False, "photoCount": 0}
 
-    files = [
-        f for f in os.listdir(student_dir)
-        if f.lower().endswith((".jpg", ".jpeg", ".png"))
-    ]
+        files = [
+            f for f in os.listdir(student_dir)
+            if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        ]
 
-    return {
-        "hasPhotos": len(files) > 0,
-        "photoCount": len(files)
-    }
+        FACE_PHOTOS_OPS_TOTAL.labels(status="success").inc()
+        return {
+            "hasPhotos": len(files) > 0,
+            "photoCount": len(files)
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        FACE_PHOTOS_OPS_TOTAL.labels(status="error").inc()
+        FACE_UNHANDLED_ERRORS_TOTAL.labels(endpoint="/api/student/{student_id}/photos").inc()
+        logger.exception("get_student_photos error")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        FACE_PHOTOS_OP_DURATION_SECONDS.observe(time.perf_counter() - t0)
+
+
 # ---------------------------------------------------------------------------
 # POST /api/process-student
 # Saves front/left/right photos for a student and validates faces exist.
@@ -108,7 +215,7 @@ async def get_student_photos(student_id: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/process-student", tags=["Training"])
-async def process_student(
+def process_student(
     studentId: str = Form(...),
     front: UploadFile = File(...),
     left:  UploadFile = File(...),
@@ -117,43 +224,87 @@ async def process_student(
     """
     Receive 3 photos (front, left, right) for a student, verify a face is
     detectable in each, and persist them to dataset/<studentId>/.
+
+    Uses InsightFace (buffalo_l) for validation instead of mediapipe so the
+    same model is used end-to-end.  Falls back to mediapipe if insightface
+    detection fails, so poor-quality or distant photos still get a chance.
     """
-    student_dir = os.path.join(DATASET_PATH, studentId)
-    os.makedirs(student_dir, exist_ok=True)
+    t0 = time.perf_counter()
+    try:
+        student_dir = os.path.join(DATASET_PATH, studentId)
+        os.makedirs(student_dir, exist_ok=True)
 
-    fa = get_face_app()
+        results = {}
+        for pose, upload in [("front", front), ("left", left), ("right", right)]:
+            raw = upload.file.read()
+            if not raw:
+                FACE_PROCESS_STUDENT_OPS_TOTAL.labels(status="empty_upload").inc()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{pose} photo upload is empty. Please re-select the file.",
+                )
 
-    results = {}
-    for pose, upload in [("front", front), ("left", left), ("right", right)]:
-        raw = await upload.read()
-        arr = np.frombuffer(raw, dtype=np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            arr = np.frombuffer(raw, dtype=np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
-        if img is None:
-            raise HTTPException(status_code=400, detail=f"Could not decode {pose} image")
+            if img is None:
+                FACE_PROCESS_STUDENT_OPS_TOTAL.labels(status="decode_error").inc()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Could not decode {pose} image. Please use JPG or PNG.",
+                )
 
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        faces = fa.get(rgb)
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        if not faces:
-            raise HTTPException(
-                status_code=422,
-                detail=f"No face detected in {pose} photo. Please retake with good lighting.",
-            )
+            # --- Primary: InsightFace multi-scale detection ---
+            faces = _detect_multiscale(img_rgb)
+            face_found = len(faces) > 0
 
-        save_path = os.path.join(student_dir, f"{pose}.jpg")
-        cv2.imwrite(save_path, img)
-        results[pose] = "saved"
-        logger.info(f"[process-student] {studentId}/{pose}.jpg saved")
+            # --- Fallback: mediapipe FaceMesh (catches faces insightface misses) ---
+            if not face_found:
+                try:
+                    import mediapipe as mp
+                    face_mesh = mp.solutions.face_mesh.FaceMesh(
+                        static_image_mode=True, max_num_faces=1, refine_landmarks=True
+                    )
+                    mesh_result = face_mesh.process(img_rgb)
+                    face_mesh.close()
+                    face_found = bool(mesh_result.multi_face_landmarks)
+                except Exception as mp_err:
+                    logger.debug(f"mediapipe fallback error for {pose}: {mp_err}")
 
-    _clear_db_embedding(studentId)
+            if not face_found:
+                FACE_PROCESS_STUDENT_OPS_TOTAL.labels(status="no_face_detected").inc()
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"No face detected in {pose} photo. "
+                        "Please ensure good lighting, face the camera clearly, "
+                        "and avoid extreme angles or obstructions."
+                    ),
+                )
 
-    return {
-        "success": True,
-        "studentId": studentId,
-        "photos": results,
-        "message": "All 3 photos validated and saved successfully",
-    }
+            save_path = os.path.join(student_dir, f"{pose}.jpg")
+            cv2.imwrite(save_path, img)
+            results[pose] = "saved"
+            logger.info(f"[process-student] {studentId}/{pose}.jpg saved")
+
+        FACE_PROCESS_STUDENT_OPS_TOTAL.labels(status="success").inc()
+        return {
+            "success": True,
+            "studentId": studentId,
+            "photos": results,
+            "message": "All 3 photos validated and saved successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        FACE_PROCESS_STUDENT_OPS_TOTAL.labels(status="error").inc()
+        FACE_UNHANDLED_ERRORS_TOTAL.labels(endpoint="/api/process-student").inc()
+        logger.exception("process_student error")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        FACE_PROCESS_STUDENT_OP_DURATION_SECONDS.observe(time.perf_counter() - t0)
 
 
 # ---------------------------------------------------------------------------
@@ -162,163 +313,120 @@ async def process_student(
 # Called by teacher service run_training()
 # ---------------------------------------------------------------------------
 
-def train_model_task():
+@app.post("/api/train", tags=["Training"])
+def train_model():
     """
-    Background task to walk dataset/ folder, extract ArcFace embeddings for every student,
+    Walk dataset/ folder, extract ArcFace embeddings for every student,
     save face_embeddings.pkl, and update the database.
     """
+    t0 = time.perf_counter()
     try:
-        import albumentations as A
-        augmenter = A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.Rotate(limit=15, p=0.8),
-            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
-            A.GaussianBlur(blur_limit=(3, 5), p=0.3),
-        ])
-    except ImportError:
-        augmenter = None
-        logger.warning("albumentations not installed — augmentation disabled")
-
-    if not os.path.exists(DATASET_PATH):
-        logger.warning("Dataset folder not found")
-        return
-
-    fa = get_face_app()
-
-    student_folders = [
-        d for d in os.listdir(DATASET_PATH)
-        if os.path.isdir(os.path.join(DATASET_PATH, d))
-    ]
-    if not student_folders:
-        logger.warning("No student folders found in dataset/")
-        return
-
-    face_dict: dict[str, np.ndarray] = {}
-    last_trained = 0.0
-    if os.path.exists(EMBEDDINGS_FILE):
         try:
-            with open(EMBEDDINGS_FILE, "rb") as f:
-                face_dict = pickle.load(f)
-            last_trained = os.path.getmtime(EMBEDDINGS_FILE)
-        except Exception:
-            pass
+            import albumentations as A
+            augmenter = A.Compose([
+                A.HorizontalFlip(p=0.5),
+                A.Rotate(limit=15, p=0.8),
+                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
+                A.GaussianBlur(blur_limit=(3, 5), p=0.3),
+            ])
+        except ImportError:
+            augmenter = None
+            logger.warning("albumentations not installed — augmentation disabled")
 
-    total_images = 0
-    new_face_dict: dict[str, np.ndarray] = {}
+        if not os.path.exists(DATASET_PATH):
+            FACE_TRAIN_OPS_TOTAL.labels(status="no_dataset").inc()
+            raise HTTPException(status_code=404, detail="Dataset folder not found")
 
-    for folder in sorted(student_folders):
-        person_path = os.path.join(DATASET_PATH, folder)
-        image_files = [
-            f for f in os.listdir(person_path)
-            if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        fa = get_face_app()
+
+        student_folders = [
+            d for d in os.listdir(DATASET_PATH)
+            if os.path.isdir(os.path.join(DATASET_PATH, d))
         ]
-        if not image_files:
-            continue
+        if not student_folders:
+            FACE_TRAIN_OPS_TOTAL.labels(status="no_students").inc()
+            raise HTTPException(status_code=404, detail="No student folders found in dataset/")
 
-        needs_training = folder.lower() not in face_dict
-        if not needs_training:
-            for img_name in image_files:
-                if os.path.getmtime(os.path.join(person_path, img_name)) > last_trained:
-                    needs_training = True
-                    break
+        face_dict: dict[str, np.ndarray] = {}
+        total_images = 0
 
-        if not needs_training:
-            continue
-
-        person_embeddings: list[np.ndarray] = []
-
-        for img_name in image_files:
-            img_path = os.path.join(person_path, img_name)
-            img = cv2.imread(img_path)
-            if img is None:
+        for folder in sorted(student_folders):
+            person_path = os.path.join(DATASET_PATH, folder)
+            image_files = [
+                f for f in os.listdir(person_path)
+                if f.lower().endswith((".jpg", ".jpeg", ".png"))
+            ]
+            if not image_files:
+                logger.warning(f"No images in {folder}, skipping")
                 continue
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-            faces = fa.get(img_rgb)
-            if faces:
-                face = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
-                person_embeddings.append(face.normed_embedding)
-                total_images += 1
+            person_embeddings: list[np.ndarray] = []
 
-            if augmenter is not None:
-                for _ in range(min(3, max(1, 5 - len(image_files)))):
-                    try:
-                        aug_img = augmenter(image=img_rgb)["image"]
-                        aug_faces = fa.get(aug_img)
-                        if aug_faces:
-                            f = max(aug_faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
-                            person_embeddings.append(f.normed_embedding)
-                    except Exception:
-                        pass
+            for img_name in image_files:
+                img_path = os.path.join(person_path, img_name)
+                img = cv2.imread(img_path)
+                if img is None:
+                    continue
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        if person_embeddings:
-            arr = np.array(person_embeddings)
-            median_emb = np.median(arr, axis=0)
-            median_emb = median_emb / np.linalg.norm(median_emb)
-            
-            face_dict[folder.lower()] = median_emb
-            new_face_dict[folder.lower()] = median_emb
-            logger.info(f"[train] {folder}: {len(person_embeddings)} samples → embedding saved")
-        else:
-            logger.warning(f"[train] {folder}: no faces detected, skipped")
+                # Use multi-scale detection during training too
+                faces = _detect_multiscale(img_rgb)
+                if faces:
+                    face = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
+                    person_embeddings.append(face.normed_embedding)
+                    total_images += 1
 
-    if not new_face_dict:
-        logger.info("No new or updated students to train. Skipped.")
+                # Augmentation
+                if augmenter is not None:
+                    for _ in range(min(3, max(1, 5 - len(image_files)))):
+                        try:
+                            aug_img = augmenter(image=img_rgb)["image"]
+                            aug_faces = fa.get(aug_img)
+                            if aug_faces:
+                                f = max(aug_faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
+                                person_embeddings.append(f.normed_embedding)
+                        except Exception:
+                            pass
+
+            if person_embeddings:
+                arr = np.array(person_embeddings)
+                median_emb = np.median(arr, axis=0)
+                median_emb = median_emb / np.linalg.norm(median_emb)
+                face_dict[folder.lower()] = median_emb
+                logger.info(f"[train] {folder}: {len(person_embeddings)} samples → embedding saved")
+            else:
+                logger.warning(f"[train] {folder}: no faces detected, skipped")
+
+        if not face_dict:
+            FACE_TRAIN_OPS_TOTAL.labels(status="no_embeddings").inc()
+            raise HTTPException(status_code=422, detail="No valid face embeddings generated")
+
+        with open(EMBEDDINGS_FILE, "wb") as f:
+            pickle.dump(face_dict, f)
+
+        FACE_TRAIN_STUDENTS_PROCESSED_TOTAL.inc(len(face_dict))
+        FACE_TRAIN_IMAGES_PROCESSED_TOTAL.inc(total_images)
+
+        _update_db_embeddings(face_dict)
+
+        FACE_TRAIN_OPS_TOTAL.labels(status="success").inc()
         return {
-            "trained_count": 0,
-            "total_images": 0,
-            "message": "All students are already trained. No new training needed.",
+            "success": True,
+            "studentsTraced": len(face_dict),
+            "totalImagesProcessed": total_images,
+            "embeddingsFile": EMBEDDINGS_FILE,
+            "students": list(face_dict.keys()),
         }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        FACE_TRAIN_OPS_TOTAL.labels(status="error").inc()
+        FACE_UNHANDLED_ERRORS_TOTAL.labels(endpoint="/api/train").inc()
+        logger.exception("train_model error")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        FACE_TRAIN_OP_DURATION_SECONDS.observe(time.perf_counter() - t0)
 
-    with open(EMBEDDINGS_FILE, "wb") as f:
-        pickle.dump(face_dict, f)
-
-    _update_db_embeddings(new_face_dict)
-    msg = f"Successfully trained {len(new_face_dict)} student(s) from {total_images} images."
-    logger.info(f"Training completed. {msg}")
-    return {
-        "trained_count": len(new_face_dict),
-        "total_images": total_images,
-        "message": msg,
-    }
-
-@app.post("/api/train", tags=["Training"])
-async def train_model():
-    """
-    Run face recognition model training synchronously and return results.
-    Incremental training is fast — only new/updated students are processed.
-    """
-    import asyncio
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, train_model_task)
-    if result is None:
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "message": "Training failed — check dataset folder."},
-        )
-    return JSONResponse(content={"success": True, **result})
-
-
-def _clear_db_embedding(student_id: str):
-    """Null out the embedding so the student shows as untrained again."""
-    try:
-        import psycopg2
-        from dotenv import load_dotenv
-        load_dotenv()
-        database_url = os.getenv("DATABASE_URL")
-        if not database_url:
-            return
-        conn = psycopg2.connect(database_url)
-        cursor = conn.cursor()
-        cursor.execute(
-            'UPDATE "Student" SET "faceEmbedding" = NULL WHERE id = %s',
-            (student_id,)
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Failed to clear DB embedding for {student_id}: {e}")
 
 def _update_db_embeddings(face_dict: dict):
     """Best-effort DB update — failures are logged, not raised."""
@@ -328,6 +436,7 @@ def _update_db_embeddings(face_dict: dict):
         load_dotenv()
         database_url = os.getenv("DATABASE_URL")
         if not database_url:
+            FACE_TRAIN_DB_UPDATE_TOTAL.labels(status="skipped").inc()
             return
         conn = psycopg2.connect(database_url)
         cursor = conn.cursor()
@@ -346,8 +455,10 @@ def _update_db_embeddings(face_dict: dict):
         conn.commit()
         cursor.close()
         conn.close()
+        FACE_TRAIN_DB_UPDATE_TOTAL.labels(status="success").inc()
         logger.info(f"[train] DB updated for {len(face_dict)} students")
     except Exception as e:
+        FACE_TRAIN_DB_UPDATE_TOTAL.labels(status="error").inc()
         logger.warning(f"[train] DB update skipped: {e}")
 
 
@@ -363,105 +474,117 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 
 @app.post("/api/recognize", tags=["Recognition"])
-async def recognize_faces(
+def recognize_faces(
     courseId: str = Form(...),
     frames: list[UploadFile] = File(...),
-    confidence_threshold: float = Form(0.45),
+    confidence_threshold: float = Form(0.38),  # lowered from 0.45 — helps at distance
 ):
     """
     Accept classroom frame images, run ArcFace recognition against the
     trained embeddings, and return matched student IDs + confidence scores.
     """
-    if not os.path.exists(EMBEDDINGS_FILE):
-        raise HTTPException(
-            status_code=404,
-            detail="No trained model found. Please run /api/train first.",
-        )
+    t0 = time.perf_counter()
+    try:
+        if not os.path.exists(EMBEDDINGS_FILE):
+            FACE_RECOGNIZE_OPS_TOTAL.labels(status="no_model").inc()
+            raise HTTPException(
+                status_code=404,
+                detail="No trained model found. Please run /api/train first.",
+            )
 
-    with open(EMBEDDINGS_FILE, "rb") as f:
-        known_faces: dict[str, np.ndarray] = pickle.load(f)
+        with open(EMBEDDINGS_FILE, "rb") as f:
+            known_faces: dict[str, np.ndarray] = pickle.load(f)
 
-    if not known_faces:
-        raise HTTPException(status_code=422, detail="Trained embeddings file is empty")
+        if not known_faces:
+            FACE_RECOGNIZE_OPS_TOTAL.labels(status="empty_embeddings").inc()
+            raise HTTPException(status_code=422, detail="Trained embeddings file is empty")
 
-    fa = get_face_app()
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    # Clear old output
-    for item in os.listdir(OUTPUT_FOLDER):
-        item_path = os.path.join(OUTPUT_FOLDER, item)
-        try:
-            os.unlink(item_path) if os.path.isfile(item_path) else shutil.rmtree(item_path)
-        except Exception:
-            pass
+        # Clear old output
+        for item in os.listdir(OUTPUT_FOLDER):
+            item_path = os.path.join(OUTPUT_FOLDER, item)
+            try:
+                os.unlink(item_path) if os.path.isfile(item_path) else shutil.rmtree(item_path)
+            except Exception:
+                pass
 
-    all_detections: list[dict] = []
-    total_faces = 0
-    recognized_students: set[str] = set()
-    confidences: list[float] = []
+        all_detections: list[dict] = []
+        total_faces = 0
+        recognized_students: set[str] = set()
+        confidences: list[float] = []
 
-    for idx, frame_upload in enumerate(frames):
-        raw = await frame_upload.read()
-        arr = np.frombuffer(raw, dtype=np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        if img is None:
-            logger.warning(f"[recognize] Frame {idx} could not be decoded, skipping")
-            continue
-
-        face_candidates: list = []
-        try:
-            detected = fa.get(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-            face_candidates.extend(detected)
-        except Exception as e:
-            logger.debug(f"Detection error: {e}")
-
-        # Deduplicate overlapping bboxes (IoU > 0.7)
-        unique_faces = _deduplicate_faces(face_candidates)
-
-        recognized_in_frame: set[str] = set()
-        for face_idx, face in enumerate(unique_faces):
-            emb = face.normed_embedding
-            norm = np.linalg.norm(emb)
-            if norm == 0:
+        for idx, frame_upload in enumerate(frames):
+            raw = frame_upload.file.read()
+            arr = np.frombuffer(raw, dtype=np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is None:
+                logger.warning(f"[recognize] Frame {idx} could not be decoded, skipping")
                 continue
-            emb = emb / norm
 
-            best_match, best_sim = None, 0.0
-            for name, known_emb in known_faces.items():
-                sim = _cosine_similarity(emb, known_emb)
-                if sim > best_sim and sim > confidence_threshold and name not in recognized_in_frame:
-                    best_match, best_sim = name, sim
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-            bbox = face.bbox.astype(int).tolist()
-            all_detections.append({
-                "imageIndex": idx,
-                "faceIndex": face_idx,
-                "bbox": bbox,
-                "confidence": float(best_sim),
-                "studentId": best_match,
-            })
+            # Multi-scale + multi-variant detection for distant faces
+            unique_faces = _detect_multiscale(img_rgb)
 
-            total_faces += 1
-            if best_match:
-                recognized_in_frame.add(best_match)
-                recognized_students.add(best_match)
-                confidences.append(best_sim)
-                logger.info(f"[recognize] ✓ {best_match} ({best_sim:.3f}) in frame {idx}")
+            recognized_in_frame: set[str] = set()
+            for face_idx, face in enumerate(unique_faces):
+                emb = face.normed_embedding
+                norm = np.linalg.norm(emb)
+                if norm == 0:
+                    continue
+                emb = emb / norm
 
-        # Save annotated frame
-        _save_annotated(img, unique_faces, known_faces, f"frame_{idx:03d}.jpg",
-                        confidence_threshold, OUTPUT_FOLDER)
+                best_match, best_sim = None, 0.0
+                for name, known_emb in known_faces.items():
+                    sim = _cosine_similarity(emb, known_emb)
+                    if sim > best_sim and sim > confidence_threshold and name not in recognized_in_frame:
+                        best_match, best_sim = name, sim
 
-    avg_conf = float(np.mean(confidences)) if confidences else 0.0
+                bbox = face.bbox.astype(int).tolist()
+                all_detections.append({
+                    "imageIndex": idx,
+                    "faceIndex": face_idx,
+                    "bbox": bbox,
+                    "confidence": float(best_sim),
+                    "studentId": best_match,
+                })
 
-    return {
-        "totalFaces": total_faces,
-        "recognizedStudents": list(recognized_students),
-        "averageConfidence": avg_conf,
-        "detections": all_detections,
-        "processedImages": len(frames),
-        "courseId": courseId,
-    }
+                total_faces += 1
+                if best_match:
+                    recognized_in_frame.add(best_match)
+                    recognized_students.add(best_match)
+                    confidences.append(best_sim)
+                    FACE_RECOGNIZE_CONFIDENCE.observe(best_sim)
+                    logger.info(f"[recognize] ✓ {best_match} ({best_sim:.3f}) in frame {idx}")
+
+            _save_annotated(img, unique_faces, known_faces, f"frame_{idx:03d}.jpg",
+                            confidence_threshold, OUTPUT_FOLDER)
+
+        avg_conf = float(np.mean(confidences)) if confidences else 0.0
+
+        FACE_RECOGNIZE_FACES_DETECTED_TOTAL.inc(total_faces)
+        FACE_RECOGNIZE_STUDENTS_MATCHED_TOTAL.inc(len(recognized_students))
+        FACE_RECOGNIZE_FRAMES_PROCESSED_TOTAL.inc(len(frames))
+        FACE_RECOGNIZE_OPS_TOTAL.labels(status="success").inc()
+
+        return {
+            "totalFaces": total_faces,
+            "recognizedStudents": list(recognized_students),
+            "averageConfidence": avg_conf,
+            "detections": all_detections,
+            "processedImages": len(frames),
+            "courseId": courseId,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        FACE_RECOGNIZE_OPS_TOTAL.labels(status="error").inc()
+        FACE_UNHANDLED_ERRORS_TOTAL.labels(endpoint="/api/recognize").inc()
+        logger.exception("recognize_faces error")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        FACE_RECOGNIZE_OP_DURATION_SECONDS.observe(time.perf_counter() - t0)
 
 
 # ---------------------------------------------------------------------------
@@ -469,12 +592,13 @@ async def recognize_faces(
 # ---------------------------------------------------------------------------
 
 def _enhance(img: np.ndarray) -> np.ndarray:
+    """PIL-based brightness/contrast/sharpness boost. Returns BGR image."""
     try:
         from PIL import Image, ImageEnhance
         pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        pil = ImageEnhance.Brightness(pil).enhance(1.2)
-        pil = ImageEnhance.Contrast(pil).enhance(1.5)
-        pil = ImageEnhance.Sharpness(pil).enhance(1.3)
+        pil = ImageEnhance.Brightness(pil).enhance(1.3)
+        pil = ImageEnhance.Contrast(pil).enhance(1.6)
+        pil = ImageEnhance.Sharpness(pil).enhance(1.5)
         return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
     except Exception:
         return img

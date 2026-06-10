@@ -103,7 +103,7 @@ def main():
 
         # Initialize InsightFace ArcFace model
         print("\n[1/5] Initializing face recognition model...")
-        app = FaceAnalysis(name='buffalo_l', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
         app.prepare(ctx_id=0, det_size=(640, 640))
         print("  [OK] Model loaded successfully")
 
