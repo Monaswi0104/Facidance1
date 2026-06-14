@@ -157,7 +157,24 @@ export default function TeacherAttendance() {
   const [loading, setLoading] = useState(false);
   const [isStartingTraining, setIsStartingTraining] = useState(false);
   const [isModelTraining, setIsModelTraining] = useState(false);
+  const [trainingProgress, setTrainingProgress] = useState(0);
   const [searchFocused, setSearchFocused] = useState(false);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isModelTraining) {
+      setTrainingProgress(0);
+      interval = setInterval(() => {
+        setTrainingProgress(p => {
+          const increment = Math.random() * 8 + 2;
+          return p + increment > 95 ? 95 : p + increment;
+        });
+      }, 500);
+    } else {
+      setTrainingProgress(100);
+    }
+    return () => clearInterval(interval);
+  }, [isModelTraining]);
 
   const allCourses = useMemo<FlattenedCourse[]>(() => {
     if (!hierarchy) return [];
@@ -421,21 +438,36 @@ export default function TeacherAttendance() {
 
             {isModelTraining && (
               <div style={{
-                display: "flex", alignItems: "center", gap: 12,
-                padding: "14px 20px", borderRadius: 14,
+                display: "flex", flexDirection: "column", gap: 12,
+                padding: "16px 20px", borderRadius: 14,
                 background: "rgba(245,158,11,0.06)",
                 border: "1px solid rgba(245,158,11,0.25)",
+                overflow: "hidden", position: "relative"
               }}>
-                <div style={{
-                  width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
-                  border: "2px solid rgba(245,158,11,0.2)", borderTopColor: "#f59e0b",
-                  animation: "spin 0.9s linear infinite",
-                }} />
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: "#92400e" }}>Training face recognition model…</p>
-                  <p style={{ fontSize: 12, color: "#b45309", marginTop: 2 }}>
-                    Processing new students. This should only take a few seconds.
-                  </p>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{
+                    width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                    border: "2px solid rgba(245,158,11,0.2)", borderTopColor: "#f59e0b",
+                    animation: "spin 0.9s linear infinite",
+                  }} />
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "#92400e", display: "flex", justifyContent: "space-between" }}>
+                      <span>Training face recognition model…</span>
+                      <span>{Math.floor(trainingProgress)}%</span>
+                    </p>
+                    <p style={{ fontSize: 12, color: "#b45309", marginTop: 2 }}>
+                      Processing new students. This should only take a few seconds.
+                    </p>
+                  </div>
+                </div>
+                {/* Progress Bar Container */}
+                <div style={{ width: "100%", height: 6, background: "rgba(245,158,11,0.15)", borderRadius: 4, overflow: "hidden" }}>
+                  {/* Progress Bar Fill */}
+                  <div style={{
+                    height: "100%", width: `${trainingProgress}%`,
+                    background: "linear-gradient(90deg, #f59e0b, #fbbf24)",
+                    borderRadius: 4, transition: "width 0.4s ease-out"
+                  }} />
                 </div>
               </div>
             )}
