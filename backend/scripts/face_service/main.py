@@ -70,7 +70,7 @@ def get_face_app():
         t0 = time.perf_counter()
         try:
             from insightface.app import FaceAnalysis
-            fa = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+            fa = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
             fa.prepare(ctx_id=0, det_size=(640, 640))
             _face_app = fa
             FACE_MODEL_LOAD_TOTAL.labels(status="success").inc()

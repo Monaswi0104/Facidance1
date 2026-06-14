@@ -13,4 +13,4 @@ providers:
     updateIntervalSeconds: 30
     allowUiUpdates: true
     options:
-      path: /var/lib/grafana/dashboards
+      path: /home/monaswi/Documents/Facidance1/monitoring/grafana/dashboards

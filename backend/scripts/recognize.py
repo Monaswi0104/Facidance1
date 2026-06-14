@@ -178,8 +178,8 @@ def main():
             sys.exit(1)
 
         with contextlib.redirect_stdout(sys.stderr):
-            app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
-            app.prepare(ctx_id=0, det_size=(640,640))
+            app = FaceAnalysis(name='buffalo_l', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+            app.prepare(ctx_id=0, det_size=(640, 640))
 
         if not os.path.exists(TEST_FOLDER):
             print(json.dumps({

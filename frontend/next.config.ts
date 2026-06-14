@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  images: {
+    unoptimized: true,
+  },
   async rewrites() {
     return [
       { source: '/api-auth/:path*', destination: 'http://localhost:8000/:path*' },

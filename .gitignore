@@ -96,3 +96,7 @@ ecosystem.config.js
 local_nginx.conf
 *.deb
 deploy.sh
+# Local Monitoring Binaries
+monitoring-bin/
+nginx-local.conf
+facidance-dashboard.json
